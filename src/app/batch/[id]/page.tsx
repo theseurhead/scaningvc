@@ -15,6 +15,7 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
   const [batch, setBatch] = useState<VoucherBatch | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const [pageSize, setPageSize] = useState(5);
+  const [isAutoPlay, setIsAutoPlay] = useState(false);
 
   // Filter States (React state only — not persisted to localStorage)
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -33,6 +34,61 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
       setBatch(b);
     }
   }, [id, router]);
+
+  // Auto Play / Scroll logic
+  useEffect(() => {
+    if (!isAutoPlay || !batch) return;
+
+    // Check completion condition inside effect to avoid stale closures
+    const effStart = activeFilter ? activeFilter.start : batch.start;
+    const effEnd = activeFilter ? activeFilter.end : batch.end;
+    const completed = activeFilter
+      ? batch.currentIndex > effEnd
+      : (batch.status === "selesai" || batch.currentIndex > batch.end);
+
+    if (completed) {
+      setIsAutoPlay(false);
+      return;
+    }
+
+    let timeoutId: NodeJS.Timeout;
+    let animationId: number;
+
+    const play = () => {
+      const scrollPos = window.innerHeight + window.scrollY;
+      const bodyHeight = document.body.offsetHeight;
+
+      if (scrollPos >= bodyHeight - 5) {
+        timeoutId = setTimeout(() => {
+          // Trigger next logic directly to avoid stale handleNext closure
+          const nextIndex = batch.currentIndex + pageSize;
+          const clampedIndex = Math.min(nextIndex, effEnd + 1);
+
+          let newStatus = batch.status;
+          if (clampedIndex > batch.end && !activeFilter) {
+            newStatus = "selesai";
+          }
+
+          const updated = updateBatch(id, { currentIndex: clampedIndex, status: newStatus });
+          if (updated) setBatch(updated);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }, 1500);
+      } else {
+        window.scrollBy(0, 1.5);
+        animationId = requestAnimationFrame(play);
+      }
+    };
+
+    // Initial pause before scrolling down
+    timeoutId = setTimeout(() => {
+      animationId = requestAnimationFrame(play);
+    }, 1000);
+
+    return () => {
+      cancelAnimationFrame(animationId);
+      clearTimeout(timeoutId);
+    };
+  }, [isAutoPlay, batch, id, pageSize, activeFilter]);
 
   if (!isMounted || !batch) return null;
 
@@ -74,6 +130,7 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
 
       const updated = updateBatch(id, { currentIndex: clampedIndex, status: newStatus });
       if (updated) setBatch(updated);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
@@ -83,6 +140,7 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
       const clampedIndex = Math.max(prevIndex, effectiveStart);
       const updated = updateBatch(id, { currentIndex: clampedIndex, status: "aktif" });
       if (updated) setBatch(updated);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
@@ -180,7 +238,10 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
                   {PAGE_SIZE_OPTIONS.map((size) => (
                     <button
                       key={size}
-                      onClick={() => setPageSize(size)}
+                      onClick={() => {
+                        setPageSize(size);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
                       className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-colors ${
                         pageSize === size
                           ? "bg-red-600 text-white border-red-600"
@@ -366,9 +427,28 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
         {!isCompleted && (
           <div className="flex gap-3 mb-3">
             <button
+              onClick={() => setIsAutoPlay(!isAutoPlay)}
+              className={`py-5 px-5 rounded-2xl font-bold transition-all active:scale-[0.96] flex items-center justify-center border-2 ${
+                isAutoPlay
+                  ? "bg-green-600 text-white border-green-600 shadow-md animate-pulse"
+                  : "bg-white text-green-600 border-green-600 hover:bg-green-50"
+              }`}
+              title={isAutoPlay ? "Stop Auto Scroll" : "Play Auto Scroll"}
+            >
+              {isAutoPlay ? (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              )}
+            </button>
+            <button
               onClick={handlePrev}
               disabled={batch.currentIndex <= effectiveStart}
-              className={`py-5 px-5 rounded-2xl font-bold transition-all active:scale-[0.96] flex items-center justify-center ${
+              className={`py-5 px-5 rounded-2xl font-bold transition-all active:scale-[0.96] flex items-center justify-center border-2 ${
                 batch.currentIndex <= effectiveStart
                   ? "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
                   : "bg-gray-800 text-white hover:bg-gray-900 shadow-md"
