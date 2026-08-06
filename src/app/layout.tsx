@@ -29,9 +29,13 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  minimumScale: 1,
   userScalable: false,
+  viewportFit: "cover",
   themeColor: "#d6001c",
 };
+
+import { ZoomPreventer } from "./ZoomPreventer";
 
 export default function RootLayout({
   children,
@@ -43,7 +47,10 @@ export default function RootLayout({
       lang="id"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <ZoomPreventer />
+        {children}
+      </body>
     </html>
   );
 }
