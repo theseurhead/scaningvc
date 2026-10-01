@@ -4,9 +4,9 @@ import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
-import { saveScan, getBatchWithProgress } from "../actions";
+import { getBatchWithProgress } from "../actions";
 
-const PAGE_SIZE_OPTIONS = [1, 5, 10, 20];
+const PAGE_SIZE_OPTIONS = [10, 30, 50, 100];
 
 export default function BatchPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
@@ -15,8 +15,14 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
   const [batch, setBatch] = useState<any>(null);
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [isMounted, setIsMounted] = useState(false);
-  const [pageSize, setPageSize] = useState(5);
+  
+  // Start pageSize with the new default 10. If an invalid value was saved locally (though we don't save anymore),
+  // this acts as a hardcoded default.
+  const [pageSize, setPageSize] = useState(10);
+  
   const [isAutoPlay, setIsAutoPlay] = useState(false);
+  const [autoPlaySpeed, setAutoPlaySpeed] = useState<"Normal" | "x2">("Normal");
+  
   const [forceCompleted, setForceCompleted] = useState(false); // local override for "Tandai Selesai"
 
   // Filter States
@@ -26,11 +32,6 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
   const [filterEndStr, setFilterEndStr] = useState("");
   const [activeFilter, setActiveFilter] = useState<{ start: number, end: number } | null>(null);
   const [filterError, setFilterError] = useState("");
-
-  // Scan States
-  const [scanInput, setScanInput] = useState("");
-  const [scanMessage, setScanMessage] = useState({ text: "", type: "" });
-  const [isScanning, setIsScanning] = useState(false);
 
   const loadBatch = async () => {
     try {
@@ -49,29 +50,6 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
     setIsMounted(true);
     loadBatch();
   }, [id, router]);
-
-  const handleScanSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!scanInput.trim() || isScanning) return;
-    
-    setIsScanning(true);
-    setScanMessage({ text: "Menyimpan...", type: "info" });
-    const currentScan = scanInput.trim();
-    
-    try {
-      await saveScan(id, currentScan);
-      setScanMessage({ text: `Berhasil scan: ${currentScan}`, type: "success" });
-      setScanInput("");
-      
-      // Update progress locally
-      setBatch((prev: any) => ({ ...prev, progress: prev.progress + 1 }));
-    } catch (err: any) {
-      setScanMessage({ text: `Gagal: ${err.message}`, type: "error" });
-    } finally {
-      setIsScanning(false);
-      setTimeout(() => setScanMessage({ text: "", type: "" }), 3000);
-    }
-  };
 
   // Auto Play / Scroll logic
   useEffect(() => {
@@ -96,6 +74,8 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
       const bodyHeight = document.body.offsetHeight;
 
       if (scrollPos >= bodyHeight - 5) {
+        // Change interval based on speed: Normal = 1500ms, x2 = 750ms
+        const delay = autoPlaySpeed === "x2" ? 750 : 1500;
         timeoutId = setTimeout(() => {
           const nextIndex = currentIndex + pageSize;
           const clampedIndex = Math.min(nextIndex, effEnd + 1);
@@ -104,22 +84,24 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
             setForceCompleted(true);
           }
           window.scrollTo({ top: 0, behavior: "smooth" });
-        }, 1500);
+        }, delay);
       } else {
-        window.scrollBy(0, 1.5);
+        // Increase scroll step for x2 to scroll faster visually
+        const scrollStep = autoPlaySpeed === "x2" ? 3 : 1.5;
+        window.scrollBy(0, scrollStep);
         animationId = requestAnimationFrame(play);
       }
     };
 
     timeoutId = setTimeout(() => {
       animationId = requestAnimationFrame(play);
-    }, 1000);
+    }, 500);
 
     return () => {
       cancelAnimationFrame(animationId);
       clearTimeout(timeoutId);
     };
-  }, [isAutoPlay, batch, id, pageSize, activeFilter, currentIndex, forceCompleted]);
+  }, [isAutoPlay, autoPlaySpeed, batch, id, pageSize, activeFilter, currentIndex, forceCompleted]);
 
   if (!isMounted || !batch) return null;
 
@@ -210,41 +192,25 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
     <div className="min-h-screen bg-gray-50 text-gray-900 p-4 flex flex-col">
       {/* Header */}
       <header className="py-4 flex items-center max-w-md mx-auto w-full">
-        <Link href="/" className="text-gray-500 hover:text-gray-900 p-2 -ml-2 rounded-full hover:bg-gray-200 transition-colors">
+        <Link href="/" className="text-gray-500 hover:text-gray-900 p-2 -ml-2 rounded-full hover:bg-gray-200 transition-colors shrink-0">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
           </svg>
         </Link>
-        <div className="flex-1 text-center pr-8">
-          <h1 className="text-lg font-bold text-gray-800 tracking-tight">Batch {batch.kodeDasar}</h1>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider inline-block mt-0.5 ${derivedStatus === "aktif" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"}`}>
-            {derivedStatus}
-          </span>
+        <div className="flex-1 text-center pr-2">
+          <h1 className="text-lg font-bold text-gray-800 tracking-tight flex items-center justify-center gap-2">
+            Batch {batch.kodeDasar}
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider inline-block ${derivedStatus === "aktif" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"}`}>
+              {derivedStatus}
+            </span>
+          </h1>
+          <p className="text-xs text-gray-500 font-medium mt-1">
+            Total QR: {!isNaN(totalCount) ? totalCount : 0} • Sudah scan: {!isNaN(batch.progress) ? batch.progress : 0}
+          </p>
         </div>
       </header>
 
       <main className="flex-1 flex flex-col items-center max-w-md mx-auto w-full">
-
-        {/* Scan Input */}
-        <div className="w-full bg-white p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
-          <form onSubmit={handleScanSubmit}>
-            <label className="block text-sm font-bold text-gray-700 mb-2">Scan SN di Sini</label>
-            <input
-              type="text"
-              autoFocus
-              className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-red-500 outline-none text-lg font-mono"
-              placeholder="Arahkan kursor & scan barcode"
-              value={scanInput}
-              onChange={(e) => setScanInput(e.target.value)}
-              disabled={isScanning}
-            />
-          </form>
-          {scanMessage.text && (
-            <div className={`mt-2 text-xs font-bold p-2 rounded-lg ${scanMessage.type === 'error' ? 'bg-red-50 text-red-600' : scanMessage.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
-              {scanMessage.text}
-            </div>
-          )}
-        </div>
 
         {/* Collapsible Filter Panel */}
         <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-100 mb-4 overflow-hidden">
@@ -430,9 +396,6 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
                   style={{ width: `${progressPercent}%` }}
                 ></div>
               </div>
-              <div className="text-xs text-gray-500 text-right">
-                Total Scan: {batch.progress}
-              </div>
             </div>
 
             {/* QR Grid — 1 column vertical scroll */}
@@ -466,45 +429,56 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
       {/* Controls — sticky bottom */}
       <div className="sticky bottom-0 pt-4 pb-6 bg-gradient-to-t from-gray-50 via-gray-50/95 to-transparent max-w-md mx-auto w-full">
         {!isCompleted && (
-          <div className="flex gap-3 mb-3">
-            <button
-              onClick={() => setIsAutoPlay(!isAutoPlay)}
-              className={`py-5 px-5 rounded-2xl font-bold transition-all active:scale-[0.96] flex items-center justify-center border-2 ${
-                isAutoPlay
-                  ? "bg-green-600 text-white border-green-600 shadow-md animate-pulse"
-                  : "bg-white text-green-600 border-green-600 hover:bg-green-50"
-              }`}
-              title={isAutoPlay ? "Stop Auto Scroll" : "Play Auto Scroll"}
-            >
-              {isAutoPlay ? (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
-                </svg>
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              )}
-            </button>
+          <div className="flex gap-3 mb-3 items-end">
+            <div className="flex flex-col gap-1.5">
+              <select
+                value={autoPlaySpeed}
+                onChange={(e) => setAutoPlaySpeed(e.target.value as "Normal" | "x2")}
+                className="text-xs bg-white border border-gray-200 text-gray-600 font-bold rounded-lg px-2 py-1 outline-none shadow-sm focus:border-green-400"
+              >
+                <option value="Normal">Normal</option>
+                <option value="x2">Speed x2</option>
+              </select>
+              <button
+                onClick={() => setIsAutoPlay(!isAutoPlay)}
+                className={`py-4 px-4 rounded-2xl font-bold transition-all active:scale-[0.96] flex items-center justify-center border-2 ${
+                  isAutoPlay
+                    ? "bg-green-600 text-white border-green-600 shadow-md animate-pulse"
+                    : "bg-white text-green-600 border-green-600 hover:bg-green-50"
+                }`}
+                title={isAutoPlay ? "Stop Auto Scroll" : "Play Auto Scroll"}
+              >
+                {isAutoPlay ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                )}
+              </button>
+            </div>
+            
             <button
               onClick={handlePrev}
               disabled={currentIndex <= effectiveStart}
-              className={`py-5 px-5 rounded-2xl font-bold transition-all active:scale-[0.96] flex items-center justify-center border-2 ${
+              className={`py-4 px-4 mb-[2.5px] rounded-2xl font-bold transition-all active:scale-[0.96] flex items-center justify-center border-2 ${
                 currentIndex <= effectiveStart
                   ? "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
                   : "bg-gray-800 text-white hover:bg-gray-900 shadow-md"
               }`}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
             <button
               onClick={handleNext}
-              className="flex-1 py-5 px-4 bg-red-600 text-white rounded-2xl font-black shadow-lg hover:bg-red-700 active:bg-red-800 active:scale-[0.96] transition-all flex items-center justify-center gap-2 text-xl"
+              className="flex-1 py-4 px-4 mb-[2.5px] bg-red-600 text-white rounded-2xl font-black shadow-lg hover:bg-red-700 active:bg-red-800 active:scale-[0.96] transition-all flex items-center justify-center gap-2 text-xl"
             >
               NEXT ({pageSize})
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" />
               </svg>
             </button>
