@@ -2,10 +2,9 @@
 
 import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
-import { getBatch, updateBatch, VoucherBatch } from "@/lib/storage";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
-import { saveScan } from "../actions";
+import { saveScan, getBatchWithProgress } from "../actions";
 
 const PAGE_SIZE_OPTIONS = [1, 5, 10, 20];
 
@@ -13,12 +12,14 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
   const router = useRouter();
   const { id } = use(params);
 
-  const [batch, setBatch] = useState<VoucherBatch | null>(null);
+  const [batch, setBatch] = useState<any>(null);
+  const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [isMounted, setIsMounted] = useState(false);
   const [pageSize, setPageSize] = useState(5);
   const [isAutoPlay, setIsAutoPlay] = useState(false);
+  const [forceCompleted, setForceCompleted] = useState(false); // local override for "Tandai Selesai"
 
-  // Filter States (React state only — not persisted to localStorage)
+  // Filter States
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [jumpInput, setJumpInput] = useState("");
   const [filterStartStr, setFilterStartStr] = useState("");
@@ -30,6 +31,24 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
   const [scanInput, setScanInput] = useState("");
   const [scanMessage, setScanMessage] = useState({ text: "", type: "" });
   const [isScanning, setIsScanning] = useState(false);
+
+  const loadBatch = async () => {
+    try {
+      const data = await getBatchWithProgress(id);
+      setBatch(data);
+      // Initialize currentIndex based on progress, but don't exceed end
+      const initialIndex = data.start + data.progress;
+      setCurrentIndex(Math.min(initialIndex, data.end + 1));
+    } catch (err) {
+      console.error(err);
+      router.push("/");
+    }
+  };
+
+  useEffect(() => {
+    setIsMounted(true);
+    loadBatch();
+  }, [id, router]);
 
   const handleScanSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,35 +62,26 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
       await saveScan(id, currentScan);
       setScanMessage({ text: `Berhasil scan: ${currentScan}`, type: "success" });
       setScanInput("");
+      
+      // Update progress locally
+      setBatch((prev: any) => ({ ...prev, progress: prev.progress + 1 }));
     } catch (err: any) {
       setScanMessage({ text: `Gagal: ${err.message}`, type: "error" });
     } finally {
       setIsScanning(false);
-      // clear success message after 3s
       setTimeout(() => setScanMessage({ text: "", type: "" }), 3000);
     }
   };
-
-  useEffect(() => {
-    setIsMounted(true);
-    const b = getBatch(id);
-    if (!b) {
-      router.push("/");
-    } else {
-      setBatch(b);
-    }
-  }, [id, router]);
 
   // Auto Play / Scroll logic
   useEffect(() => {
     if (!isAutoPlay || !batch) return;
 
-    // Check completion condition inside effect to avoid stale closures
     const effStart = activeFilter ? activeFilter.start : batch.start;
     const effEnd = activeFilter ? activeFilter.end : batch.end;
     const completed = activeFilter
-      ? batch.currentIndex > effEnd
-      : (batch.status === "selesai" || batch.currentIndex > batch.end);
+      ? currentIndex > effEnd
+      : (forceCompleted || currentIndex > batch.end);
 
     if (completed) {
       setIsAutoPlay(false);
@@ -87,17 +97,12 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
 
       if (scrollPos >= bodyHeight - 5) {
         timeoutId = setTimeout(() => {
-          // Trigger next logic directly to avoid stale handleNext closure
-          const nextIndex = batch.currentIndex + pageSize;
+          const nextIndex = currentIndex + pageSize;
           const clampedIndex = Math.min(nextIndex, effEnd + 1);
-
-          let newStatus = batch.status;
+          setCurrentIndex(clampedIndex);
           if (clampedIndex > batch.end && !activeFilter) {
-            newStatus = "selesai";
+            setForceCompleted(true);
           }
-
-          const updated = updateBatch(id, { currentIndex: clampedIndex, status: newStatus });
-          if (updated) setBatch(updated);
           window.scrollTo({ top: 0, behavior: "smooth" });
         }, 1500);
       } else {
@@ -106,7 +111,6 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
       }
     };
 
-    // Initial pause before scrolling down
     timeoutId = setTimeout(() => {
       animationId = requestAnimationFrame(play);
     }, 1000);
@@ -115,65 +119,53 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
       cancelAnimationFrame(animationId);
       clearTimeout(timeoutId);
     };
-  }, [isAutoPlay, batch, id, pageSize, activeFilter]);
+  }, [isAutoPlay, batch, id, pageSize, activeFilter, currentIndex, forceCompleted]);
 
   if (!isMounted || !batch) return null;
 
-  // Effective range (considering filter)
   const effectiveStart = activeFilter ? activeFilter.start : batch.start;
   const effectiveEnd = activeFilter ? activeFilter.end : batch.end;
 
-  // Current page starts at currentIndex, shows `pageSize` QRs
-  const pageStartIndex = batch.currentIndex;
+  const pageStartIndex = currentIndex;
   const pageEndIndex = Math.min(pageStartIndex + pageSize - 1, effectiveEnd);
   const currentPageItems = Array.from(
-    { length: pageEndIndex - pageStartIndex + 1 },
+    { length: Math.max(0, pageEndIndex - pageStartIndex + 1) },
     (_, i) => pageStartIndex + i
   );
 
-  // Overall progress (against the full batch, not just filter)
-  const progressCount = Math.max(0, batch.currentIndex - batch.start);
   const totalCount = batch.end - batch.start + 1;
-  const progressPercent = Math.min(100, (progressCount / totalCount) * 100);
+  const progressPercent = Math.min(100, (batch.progress / totalCount) * 100);
 
-  // Page info for progress display
   const totalEffectiveCount = effectiveEnd - effectiveStart + 1;
-  const currentPage = Math.floor((batch.currentIndex - effectiveStart) / pageSize) + 1;
+  const currentPage = Math.floor(Math.max(0, currentIndex - effectiveStart) / pageSize) + 1;
   const totalPages = Math.ceil(totalEffectiveCount / pageSize);
 
+  const derivedStatus = forceCompleted || batch.progress >= totalCount ? "selesai" : "aktif";
+
   const isCompleted = activeFilter
-    ? batch.currentIndex > effectiveEnd
-    : (batch.status === "selesai" || batch.currentIndex > batch.end);
+    ? currentIndex > effectiveEnd
+    : (forceCompleted || currentIndex > batch.end);
 
   const handleNext = () => {
-    if (batch.currentIndex <= effectiveEnd) {
-      const nextIndex = batch.currentIndex + pageSize;
-      const clampedIndex = Math.min(nextIndex, effectiveEnd + 1); // clamp: can go 1 past end to signal completion
-
-      let newStatus = batch.status;
+    if (currentIndex <= effectiveEnd) {
+      const nextIndex = currentIndex + pageSize;
+      const clampedIndex = Math.min(nextIndex, effectiveEnd + 1);
+      setCurrentIndex(clampedIndex);
       if (clampedIndex > batch.end && !activeFilter) {
-        newStatus = "selesai";
+        setForceCompleted(true);
       }
-
-      const updated = updateBatch(id, { currentIndex: clampedIndex, status: newStatus });
-      if (updated) setBatch(updated);
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
   const handlePrev = () => {
-    if (batch.currentIndex > effectiveStart) {
-      const prevIndex = batch.currentIndex - pageSize;
+    if (currentIndex > effectiveStart) {
+      const prevIndex = currentIndex - pageSize;
       const clampedIndex = Math.max(prevIndex, effectiveStart);
-      const updated = updateBatch(id, { currentIndex: clampedIndex, status: "aktif" });
-      if (updated) setBatch(updated);
+      setCurrentIndex(clampedIndex);
+      setForceCompleted(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
-  };
-
-  const handleSelesai = () => {
-    const updated = updateBatch(id, { status: "selesai" });
-    if (updated) setBatch(updated);
   };
 
   const handleJump = () => {
@@ -184,8 +176,8 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
       setFilterError(`Angka harus di antara ${batch.start}–${batch.end}`);
       return;
     }
-    const updated = updateBatch(id, { currentIndex: num, status: "aktif" });
-    if (updated) setBatch(updated);
+    setCurrentIndex(num);
+    setForceCompleted(false);
     setJumpInput("");
   };
 
@@ -203,8 +195,8 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
       return;
     }
     setActiveFilter({ start: s, end: e });
-    const updated = updateBatch(id, { currentIndex: s, status: "aktif" });
-    if (updated) setBatch(updated);
+    setCurrentIndex(s);
+    setForceCompleted(false);
   };
 
   const resetFilter = () => {
@@ -225,8 +217,8 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
         </Link>
         <div className="flex-1 text-center pr-8">
           <h1 className="text-lg font-bold text-gray-800 tracking-tight">Batch {batch.kodeDasar}</h1>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider inline-block mt-0.5 ${batch.status === "aktif" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"}`}>
-            {batch.status}
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider inline-block mt-0.5 ${derivedStatus === "aktif" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"}`}>
+            {derivedStatus}
           </span>
         </div>
       </header>
@@ -426,19 +418,20 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
             <div className="w-full bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4">
               <div className="flex justify-between text-sm font-bold text-gray-700 mb-2">
                 <span>
-                  {activeFilter
-                    ? `Halaman ${currentPage} dari ${totalPages}`
-                    : `Halaman ${currentPage} dari ${totalPages}`}
+                  Halaman {currentPage} dari {totalPages}
                 </span>
                 <span className="text-gray-500">
                   {String(pageStartIndex).padStart(4, "0")}–{String(pageEndIndex).padStart(4, "0")} / {String(batch.end).padStart(4, "0")}
                 </span>
               </div>
-              <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+              <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden mb-2">
                 <div
                   className="bg-red-600 h-2.5 rounded-full transition-all duration-300 ease-out"
                   style={{ width: `${progressPercent}%` }}
                 ></div>
+              </div>
+              <div className="text-xs text-gray-500 text-right">
+                Total Scan: {batch.progress}
               </div>
             </div>
 
@@ -495,9 +488,9 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
             </button>
             <button
               onClick={handlePrev}
-              disabled={batch.currentIndex <= effectiveStart}
+              disabled={currentIndex <= effectiveStart}
               className={`py-5 px-5 rounded-2xl font-bold transition-all active:scale-[0.96] flex items-center justify-center border-2 ${
-                batch.currentIndex <= effectiveStart
+                currentIndex <= effectiveStart
                   ? "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
                   : "bg-gray-800 text-white hover:bg-gray-900 shadow-md"
               }`}
@@ -518,9 +511,9 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
           </div>
         )}
 
-        {batch.status === "aktif" && !activeFilter && !isCompleted && (
+        {derivedStatus === "aktif" && !activeFilter && !isCompleted && (
           <button
-            onClick={handleSelesai}
+            onClick={() => setForceCompleted(true)}
             className="w-full py-3 bg-transparent text-gray-400 font-bold rounded-2xl hover:bg-gray-100 active:bg-gray-200 transition-colors text-sm"
           >
             Tandai Selesai Sekarang

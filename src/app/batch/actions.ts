@@ -57,3 +57,26 @@ export async function saveScan(batchId: string, sn: string) {
   
   return true
 }
+
+export async function getBatchWithProgress(id: string) {
+  const supabase = await createClient()
+  
+  const { data, error } = await supabase
+    .from('batches')
+    .select('*, scans(count)')
+    .eq('id', id)
+    .single()
+    
+  if (error) throw new Error(error.message)
+  
+  const totalScans = data.scans?.[0]?.count || 0;
+  
+  return {
+    id: data.id,
+    kodeDasar: data.kode_dasar_sn,
+    start: data.angka_mulai,
+    end: data.angka_selesai,
+    progress: totalScans
+  }
+}
+

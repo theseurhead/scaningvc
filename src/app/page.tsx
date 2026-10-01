@@ -1,19 +1,31 @@
-"use client";
-
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getBatches, VoucherBatch } from "@/lib/storage";
+import { createClient } from "@/lib/supabase/server";
 
-export default function Home() {
-  const [batches, setBatches] = useState<VoucherBatch[]>([]);
-  const [isMounted, setIsMounted] = useState(false);
+export const dynamic = 'force-dynamic';
 
-  useEffect(() => {
-    setIsMounted(true);
-    setBatches(getBatches());
-  }, []);
+export default async function Home() {
+  const supabase = await createClient();
 
-  if (!isMounted) return null; // Avoid hydration mismatch
+  // Fetch batches for the current user
+  const { data: batchesData, error } = await supabase
+    .from('batches')
+    .select('*, scans(count)')
+    .order('created_at', { ascending: false });
+
+  const batches = (batchesData || []).map((batch: any) => {
+    const totalScans = batch.scans?.[0]?.count || 0;
+    const isSelesai = totalScans >= (batch.angka_selesai - batch.angka_mulai + 1);
+    
+    return {
+      id: batch.id,
+      kodeDasar: batch.kode_dasar_sn,
+      start: batch.angka_mulai,
+      end: batch.angka_selesai,
+      status: isSelesai ? "selesai" : "aktif",
+      createdAt: batch.created_at,
+      progress: totalScans
+    };
+  });
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 p-4 pb-24">
@@ -49,7 +61,7 @@ export default function Home() {
                 <div className="flex justify-between items-end mt-4">
                   <div className="text-sm text-gray-500">
                     <p className="mb-1">
-                      Progress: <span className="font-semibold text-gray-800">{Math.max(0, batch.currentIndex - batch.start)}</span> / {batch.end - batch.start + 1}
+                      Progress: <span className="font-semibold text-gray-800">{batch.progress}</span> / {batch.end - batch.start + 1}
                     </p>
                     <p className="text-xs">
                       {new Date(batch.createdAt).toLocaleDateString("id-ID", { 

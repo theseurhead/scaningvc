@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { logout } from './login/actions'
+import { LogoutButton } from './LogoutButton'
 import Link from 'next/link'
 
 export async function Header() {
@@ -21,11 +22,7 @@ export async function Header() {
           </Link>
         )}
       </div>
-      <form action={logout}>
-        <button type="submit" className="text-sm text-gray-600 hover:text-gray-900 font-bold bg-gray-100 px-3 py-1.5 rounded-lg hover:bg-gray-200 transition-colors">
-          Logout
-        </button>
-      </form>
+      <LogoutButton />
     </header>
   )
 }

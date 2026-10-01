@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createBatch } from "@/lib/storage";
 import Link from "next/link";
 import { saveBatch } from "../actions";
 
@@ -54,18 +53,10 @@ export default function BaruPage() {
     }
 
     try {
-      // Save to Supabase DB first
+      // Save to Supabase DB
       const dbBatch = await saveBatch(kodeDasar, startNum, endNum);
 
-      // Save to local storage with the UUID from DB
-      const newBatch = createBatch({
-        id: dbBatch.id,
-        kodeDasar,
-        start: startNum,
-        end: endNum,
-      });
-
-      router.push(`/batch/${newBatch.id}`);
+      router.push(`/batch/${dbBatch.id}`);
     } catch (err: any) {
       setError(err.message || "Terjadi kesalahan saat menyimpan batch");
       setLoading(false);

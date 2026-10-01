@@ -37,6 +37,7 @@ export const viewport: Viewport = {
 
 import { ZoomPreventer } from "./ZoomPreventer";
 import { Header } from "./Header";
+import { StorageCleaner } from "./StorageCleaner";
 
 export default function RootLayout({
   children,
@@ -49,6 +50,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <StorageCleaner />
         <ZoomPreventer />
         <Header />
         {children}
