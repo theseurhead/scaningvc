@@ -204,9 +204,6 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
               {derivedStatus}
             </span>
           </h1>
-          <p className="text-xs text-gray-500 font-medium mt-1">
-            Total QR: {!isNaN(totalCount) ? totalCount : 0} • Sudah scan: {!isNaN(batch.progress) ? batch.progress : 0}
-          </p>
         </div>
       </header>
 
