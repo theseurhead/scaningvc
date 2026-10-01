@@ -36,6 +36,7 @@ export const viewport: Viewport = {
 };
 
 import { ZoomPreventer } from "./ZoomPreventer";
+import { Header } from "./Header";
 
 export default function RootLayout({
   children,
@@ -49,6 +50,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <ZoomPreventer />
+        <Header />
         {children}
       </body>
     </html>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { getBatch, updateBatch, VoucherBatch } from "@/lib/storage";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
+import { saveScan } from "../actions";
 
 const PAGE_SIZE_OPTIONS = [1, 5, 10, 20];
 
@@ -24,6 +25,32 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
   const [filterEndStr, setFilterEndStr] = useState("");
   const [activeFilter, setActiveFilter] = useState<{ start: number, end: number } | null>(null);
   const [filterError, setFilterError] = useState("");
+
+  // Scan States
+  const [scanInput, setScanInput] = useState("");
+  const [scanMessage, setScanMessage] = useState({ text: "", type: "" });
+  const [isScanning, setIsScanning] = useState(false);
+
+  const handleScanSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scanInput.trim() || isScanning) return;
+    
+    setIsScanning(true);
+    setScanMessage({ text: "Menyimpan...", type: "info" });
+    const currentScan = scanInput.trim();
+    
+    try {
+      await saveScan(id, currentScan);
+      setScanMessage({ text: `Berhasil scan: ${currentScan}`, type: "success" });
+      setScanInput("");
+    } catch (err: any) {
+      setScanMessage({ text: `Gagal: ${err.message}`, type: "error" });
+    } finally {
+      setIsScanning(false);
+      // clear success message after 3s
+      setTimeout(() => setScanMessage({ text: "", type: "" }), 3000);
+    }
+  };
 
   useEffect(() => {
     setIsMounted(true);
@@ -205,6 +232,27 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
       </header>
 
       <main className="flex-1 flex flex-col items-center max-w-md mx-auto w-full">
+
+        {/* Scan Input */}
+        <div className="w-full bg-white p-4 rounded-2xl shadow-sm border border-gray-100 mb-4">
+          <form onSubmit={handleScanSubmit}>
+            <label className="block text-sm font-bold text-gray-700 mb-2">Scan SN di Sini</label>
+            <input
+              type="text"
+              autoFocus
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-red-500 outline-none text-lg font-mono"
+              placeholder="Arahkan kursor & scan barcode"
+              value={scanInput}
+              onChange={(e) => setScanInput(e.target.value)}
+              disabled={isScanning}
+            />
+          </form>
+          {scanMessage.text && (
+            <div className={`mt-2 text-xs font-bold p-2 rounded-lg ${scanMessage.type === 'error' ? 'bg-red-50 text-red-600' : scanMessage.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+              {scanMessage.text}
+            </div>
+          )}
+        </div>
 
         {/* Collapsible Filter Panel */}
         <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-100 mb-4 overflow-hidden">

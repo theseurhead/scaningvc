@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createBatch } from "@/lib/storage";
 import Link from "next/link";
+import { saveBatch } from "../actions";
 
 export default function BaruPage() {
   const router = useRouter();
@@ -11,46 +12,64 @@ export default function BaruPage() {
   const [start, setStart] = useState("0");
   const [end, setEnd] = useState("9999");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setLoading(true);
 
     const startNum = parseInt(start);
     const endNum = parseInt(end);
 
     if (!kodeDasar) {
       setError("Kode dasar tidak boleh kosong");
+      setLoading(false);
       return;
     }
     if (isNaN(startNum) || isNaN(endNum)) {
       setError("Angka mulai dan selesai harus berupa angka");
+      setLoading(false);
       return;
     }
     if (startNum > endNum) {
       setError("Angka mulai tidak boleh lebih besar dari angka selesai");
+      setLoading(false);
       return;
     }
     if (startNum < 0 || endNum < 0) {
       setError("Angka tidak boleh negatif");
+      setLoading(false);
       return;
     }
     if (endNum > 9999) {
       setError("Angka selesai maksimal 9999");
+      setLoading(false);
       return;
     }
     if (startNum > 9999) {
       setError("Angka mulai maksimal 9999");
+      setLoading(false);
       return;
     }
 
-    const newBatch = createBatch({
-      kodeDasar,
-      start: startNum,
-      end: endNum,
-    });
+    try {
+      // Save to Supabase DB first
+      const dbBatch = await saveBatch(kodeDasar, startNum, endNum);
 
-    router.push(`/batch/${newBatch.id}`);
+      // Save to local storage with the UUID from DB
+      const newBatch = createBatch({
+        id: dbBatch.id,
+        kodeDasar,
+        start: startNum,
+        end: endNum,
+      });
+
+      router.push(`/batch/${newBatch.id}`);
+    } catch (err: any) {
+      setError(err.message || "Terjadi kesalahan saat menyimpan batch");
+      setLoading(false);
+    }
   };
 
   return (
@@ -119,9 +138,10 @@ export default function BaruPage() {
 
           <button
             type="submit"
-            className="w-full py-4 mt-8 bg-red-600 text-white font-bold rounded-xl shadow-md hover:bg-red-700 active:bg-red-800 transition-colors text-lg"
+            disabled={loading}
+            className="w-full py-4 mt-8 bg-red-600 text-white font-bold rounded-xl shadow-md hover:bg-red-700 active:bg-red-800 transition-colors text-lg disabled:opacity-50"
           >
-            Buat Batch & Mulai Scan
+            {loading ? "Menyimpan..." : "Buat Batch & Mulai Scan"}
           </button>
         </form>
       </main>

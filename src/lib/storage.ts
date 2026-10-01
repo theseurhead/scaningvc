@@ -27,12 +27,12 @@ export function getBatch(id: string): VoucherBatch | undefined {
 }
 
 export function createBatch(
-  batchData: Omit<VoucherBatch, "id" | "currentIndex" | "status" | "createdAt">
+  batchData: Omit<VoucherBatch, "id" | "currentIndex" | "status" | "createdAt"> & { id?: string }
 ): VoucherBatch {
   const batches = getBatches();
   const newBatch: VoucherBatch = {
     ...batchData,
-    id: Date.now().toString(),
+    id: batchData.id || Date.now().toString(),
     currentIndex: batchData.start,
     status: "aktif",
     createdAt: new Date().toISOString(),
