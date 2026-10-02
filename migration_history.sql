@@ -32,8 +32,32 @@ UPDATE batches
 SET completed_at = created_at
 WHERE status = 'selesai' AND completed_at IS NULL;
 
--- 4. Pastikan foreign key di tabel scans (opsional, jika belum ada ON DELETE CASCADE)
--- Jika tabel scans sudah punya ON DELETE CASCADE ke batches, aman.
--- Jika belum, dan Anda ingin admin bisa hard delete batch:
--- ALTER TABLE scans DROP CONSTRAINT IF EXISTS scans_batch_id_fkey;
--- ALTER TABLE scans ADD CONSTRAINT scans_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE;
+-- 4. Tambahkan Policy RLS untuk membolehkan UPDATE dan DELETE bagi pemilik batch atau Admin
+-- Jika policy sudah ada, drop dulu biar tidak konflik, atau langsung create jika belum ada.
+-- Mengingat kita butuh user meng-update status ke 'selesai' dan deleted_by_user ke true:
+DROP POLICY IF EXISTS "Users can update their own batches" ON batches;
+CREATE POLICY "Users can update their own batches" 
+  ON batches FOR UPDATE 
+  USING (auth.uid() = user_id);
+
+-- Untuk Admin (bisa hapus permanen):
+DROP POLICY IF EXISTS "Admins can delete any batch" ON batches;
+CREATE POLICY "Admins can delete any batch" 
+  ON batches FOR DELETE 
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
+    )
+  );
+
+-- Untuk Admin (bisa hapus permanen scans terkait jika ada policy RLS di scans):
+DROP POLICY IF EXISTS "Admins can delete any scans" ON scans;
+CREATE POLICY "Admins can delete any scans" 
+  ON scans FOR DELETE 
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles 
+      WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
+    )
+  );

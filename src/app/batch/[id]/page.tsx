@@ -57,9 +57,9 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
     try {
       await markBatchAsCompleted(id);
       router.push("/history");
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert("Gagal menandai selesai");
+      alert("Gagal menandai selesai: " + err.message);
       setIsCompleting(false);
     }
   };
@@ -136,12 +136,26 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
     ? currentIndex > effectiveEnd
     : (batch.status === "selesai" || currentIndex > batch.end);
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentIndex <= effectiveEnd) {
       const nextIndex = currentIndex + pageSize;
       const clampedIndex = Math.min(nextIndex, effectiveEnd + 1);
       setCurrentIndex(clampedIndex);
       window.scrollTo({ top: 0, behavior: "smooth" });
+
+      if (!activeFilter && clampedIndex > batch.end) {
+        if (batch.progress >= totalCount && batch.status !== "selesai") {
+          setIsCompleting(true);
+          try {
+            await markBatchAsCompleted(id);
+            router.push("/history");
+          } catch (e: any) {
+            console.error(e);
+            alert("Gagal memindahkan batch ke History: " + e.message);
+            setIsCompleting(false);
+          }
+        }
+      }
     }
   };
 

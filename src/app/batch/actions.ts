@@ -78,7 +78,7 @@ export async function markBatchAsCompleted(batchId: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('batches')
     .update({ 
       status: 'selesai', 
@@ -86,8 +86,10 @@ export async function markBatchAsCompleted(batchId: string) {
     })
     .eq('id', batchId)
     .eq('user_id', user.id)
+    .select()
 
   if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('Update failed, possibly blocked by RLS policy.')
   
   revalidatePath('/')
   revalidatePath('/history')
@@ -99,7 +101,7 @@ export async function softDeleteBatch(batchId: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('batches')
     .update({ 
       deleted_by_user: true, 
@@ -107,8 +109,10 @@ export async function softDeleteBatch(batchId: string) {
     })
     .eq('id', batchId)
     .eq('user_id', user.id)
+    .select()
 
   if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('Delete failed, possibly blocked by RLS policy.')
   
   revalidatePath('/')
   revalidatePath('/history')

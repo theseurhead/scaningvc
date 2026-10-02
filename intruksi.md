@@ -1,81 +1,61 @@
-# Task (Revisi): History Terpisah, "Tandai Selesai", dan Hapus (User vs Admin)
+# Bugfix: Batch Tidak Pindah ke History Saat "Next" Terakhir / "Tandai Selesai"
 
 ## Konteks
-Aplikasi **Voucher SN QR Gen** (Next.js di Vercel, database Supabase). Fitur History sebelumnya sudah dibuat, tapi **perlu direvisi** karena konsepnya salah:
+Aplikasi **Voucher SN QR Gen** (Next.js di Vercel, database Supabase). Fitur History sudah diimplementasikan sesuai `prompt-v2.md`, dan SQL migrasi sudah dijalankan di Supabase (tabel `batches` sudah punya kolom `status`, `completed_at`, `deleted_by_user`, `deleted_at`).
 
-- Sebelumnya: History ditaruh satu halaman dengan Batch Aktif, dan batch dianggap selesai otomatis hanya berdasarkan `progress >= total`.
-- Yang benar: History adalah **halaman/form terpisah**, dan batch masuk History lewat **dua cara** (lihat di bawah). Selain itu ada fitur **hapus** dengan perilaku berbeda untuk user dan admin.
+## Bug
+Saat user:
+1. menekan **Next** di item paling akhir dalam batch, atau
+2. menekan **"Tandai Selesai"**,
 
-**Langkah pertama:** baca kode yang sudah ada (`src/lib/batchData.ts`, `src/app/page.tsx`, `src/app/Header.tsx`, alur scan/generate QR, tombol "Tandai Selesai" yang sudah ada, dan bagian admin). Refactor dari hasil kerja sebelumnya, jangan bikin ulang dari nol. Ikuti pola kode dan styling yang sudah ada.
+batch **tidak pindah ke History**. Batch tetap tampil di daftar Batch Aktif dan tidak ada perubahan apa pun, tanpa pesan error yang terlihat.
 
-## Perubahan Utama
+## Yang harus dikerjakan
 
-### 1. Halaman History terpisah
-- Hapus section History dari halaman Daftar Batch. Halaman utama **hanya menampilkan batch aktif**.
-- Tambah **tombol "History"** di halaman Daftar Batch (taruh di dekat judul atau di samping tombol `+ Batch Baru`, sesuaikan dengan layout) yang membuka **halaman terpisah** (contoh route `/history`).
-- Halaman History punya tombol kembali ke Daftar Batch.
-- Isi halaman History:
-  - Ringkasan di atas: **Total scan keseluruhan** dan jumlah batch selesai (contoh: `Total scan: 847 • 4 batch selesai`).
-  - Daftar kartu batch selesai (gaya konsisten dengan kartu sekarang, badge hijau `SELESAI`): nomor batch, jumlah scan (`120 / 197`), tanggal dibuat, tanggal selesai.
-  - Urutkan dari yang paling baru selesai.
-  - Empty state: "Belum ada batch yang selesai".
-  - Tiap kartu punya tombol **Hapus** (lihat bagian 3).
+### Langkah 1: Diagnosis dulu, jangan langsung menebak
+Telusuri alur dari klik tombol sampai data tampil, lalu temukan titik yang putus. Cek satu per satu:
 
-### 2. Batch masuk History lewat DUA cara
-1. **Otomatis:** user scan/lanjut isi batch (next, next) sampai semua QR selesai (`progress == total`). Begitu scan terakhir masuk, batch langsung pindah ke History.
-2. **Manual:** user menekan tombol **"Tandai Selesai"**. Batch langsung dianggap selesai dan pindah ke History **meskipun progress belum penuh** (contoh `120 / 197`). Tambahkan dialog konfirmasi sebelum diproses ("Tandai batch ini selesai? Batch akan dipindah ke History.").
+1. **Handler tombol**
+   - Apakah "Tandai Selesai" dan "Next" di item terakhir benar-benar memanggil fungsi yang menulis ke database (bukan hanya mengubah state lokal / `router.push`)?
+   - Apakah handler-nya `await` dan menangani error, atau error-nya ditelan diam-diam?
+2. **Query update ke Supabase**
+   - Apakah update menulis `status = 'selesai'` dan `completed_at = now()` ke tabel `batches` dengan filter `id` yang benar?
+   - Tambahkan `.select()` setelah `.update()` dan **log hasilnya**. Supabase mengembalikan `error = null` dengan 0 baris ter-update kalau terblokir RLS, jadi cek jumlah baris yang berubah, bukan hanya `error`.
+3. **RLS (Row Level Security)**
+   - Tabel `batches` memakai RLS. Cek apakah ada policy `UPDATE` untuk user pemilik batch (`auth.uid() = user_id`). Kalau tidak ada, update akan gagal diam-diam.
+   - Kalau policy kurang, berikan SQL policy yang dibutuhkan (UPDATE untuk owner, dan untuk admin sesuai mekanisme role yang ada), dan jelaskan cara menjalankannya di Supabase SQL Editor.
+4. **Pembacaan data (`getDashboardData` di `src/lib/batchData.ts`)**
+   - Apakah halaman Batch Aktif memfilter `status = 'aktif'` (atau `status != 'selesai'`) dan `deleted_by_user = false`?
+   - Apakah logika lama (`progress >= total` dinamis) masih bertabrakan dengan kolom `status`? Sumber kebenaran sekarang adalah kolom `status` di database. Hapus logika yang bertentangan.
+   - Apakah batch lama dengan `status = NULL` ditangani? (Kolom baru default `'aktif'`, tapi pastikan query tidak mengecualikan baris yang `NULL`.)
+5. **Caching / revalidasi**
+   - Halaman Daftar Batch bisa tersimpan di cache Next.js. Setelah update, pastikan ada `revalidatePath('/')` dan `revalidatePath('/history')` (kalau pakai server action / route handler), atau `router.refresh()` (kalau di client), dan fetch tidak ter-cache (`dynamic = 'force-dynamic'` atau `cache: 'no-store'` sesuai pola project).
+6. **Environment**
+   - Pastikan app yang dites terhubung ke project Supabase yang sama dengan yang tadi diubah SQL-nya (cek env var di lokal dan di Vercel).
 
-Aturan penting:
-- Status **disimpan di database** (kolom `status` = `'aktif' | 'selesai'` dan `completed_at`), **bukan** dihitung dinamis saja.
-- **Kedua jalur** di atas harus menulis `status = 'selesai'` dan `completed_at = now()`. Untuk jalur otomatis, update dilakukan di alur scan saat scan terakhir masuk (lakukan di sisi server/dalam transaksi yang sama, bukan hanya di client).
-- Batch `selesai` tidak bisa kembali ke `aktif` dan tidak bisa discan lagi.
-- Batch dengan `total = 0` tidak boleh masuk History lewat jalur otomatis.
-- Pastikan kolom `status` dan `completed_at` ada di tabel `batches`. Kalau belum, sediakan SQL migrasi (`ADD COLUMN IF NOT EXISTS`). Untuk data lama yang sudah penuh, `completed_at` isi dengan **waktu scan terakhir batch itu** (`MAX` dari kolom waktu di tabel `scans`), bukan `created_at`. Sesuaikan nama kolom dengan skema asli.
+Laporkan dulu **penyebab sebenarnya** yang ditemukan (bisa lebih dari satu) sebelum memperbaiki.
 
-### 3. Fitur Hapus: beda perilaku User vs Admin
-Gunakan **soft delete** untuk sisi user dan **hard delete** untuk admin.
+### Langkah 2: Perbaikan
+Pastikan perilaku berikut berjalan benar:
 
-**Sisi User**
-- Tombol **Hapus** tersedia di kartu batch (di History, dan juga di Batch Aktif jika masuk akal dengan UI sekarang). Wajib ada dialog konfirmasi.
-- Saat user menghapus: batch **hilang dari tampilan user** (daftar aktif, History, dan hitungan total), tapi **data tetap ada di database**.
-- Implementasi: tambah kolom `deleted_by_user boolean default false` dan `deleted_at timestamptz` (atau nama setara) di tabel `batches`. Jangan hapus baris dan jangan hapus data `scans`-nya.
-- Semua query sisi user harus memfilter `deleted_by_user = false`.
+- **Tandai Selesai**: tampilkan dialog konfirmasi, lalu update `status = 'selesai'` dan `completed_at = now()`. Setelah berhasil, batch hilang dari Batch Aktif dan muncul di halaman History. Berlaku walau progress belum penuh.
+- **Next di item paling akhir**: saat scan/item terakhir masuk dan `progress == total`, update status ke `'selesai'` di database (lakukan di server, dalam alur yang sama dengan penyimpanan scan terakhir). Setelah itu arahkan user kembali ke Daftar Batch atau ke History.
+- Update harus **idempotent**: klik dua kali atau request ulang tidak boleh error atau menimbulkan data ganda.
+- Jika update gagal (RLS, jaringan, dll.), tampilkan **pesan error yang jelas** ke user (toast/alert), jangan diam saja.
+- Batch dengan `total = 0` tetap tidak boleh otomatis masuk History.
+- Header `Sudah scan` harus ikut berubah setelah batch pindah ke History (satu sumber hitungan dengan halaman History).
 
-**Sisi Admin**
-- Admin **tetap melihat semua batch**, termasuk yang dihapus user. Batch yang dihapus user diberi penanda jelas (badge/label "Dihapus user" beserta waktu hapusnya).
-- Admin punya tombol **Hapus permanen** di menu admin. Ini **hard delete**: baris batch dan semua data terkait (`scans`, QR, dsb.) benar-benar dihapus dari database. Wajib ada dialog konfirmasi yang jelas bahwa aksi ini tidak bisa dibatalkan.
-- (Opsional) Admin bisa memulihkan batch yang dihapus user (set `deleted_by_user = false`).
-- Cek hak akses **di sisi server** (API route / server action), bukan hanya menyembunyikan tombol di UI. User biasa tidak boleh bisa memanggil hard delete. Pakai mekanisme role/admin yang sudah ada di project.
-- Jika tabel `scans` punya foreign key ke `batches`, pastikan hard delete berjalan benar (pakai `ON DELETE CASCADE` atau hapus berurutan dalam satu transaksi).
-
-### 4. Header "Sudah scan"
-- `Sudah scan: N` di header = **total scan dari batch di History milik user tersebut** (status `selesai` dan `deleted_by_user = false`). Hitung dari satu fungsi yang sama dengan ringkasan di halaman History (`getHistoryTotal()` atau sejenisnya) supaya angkanya selalu sama.
-- `Total QR` di header tetap seperti semula.
-- Angka ter-update otomatis setelah batch selesai atau dihapus (revalidate/refetch sesuai pola project).
-
-## Hal yang tidak boleh berubah
-- Alur generate QR, scan, dan `+ Batch Baru` tetap berfungsi.
-- Gaya visual (warna merah, font, kartu) tetap konsisten, responsif di mobile dan desktop.
-
-## Edge Case
-- Scan ganda pada QR yang sama tidak boleh menambah hitungan dua kali.
-- "Tandai Selesai" ditekan dua kali (double click) tidak boleh menimbulkan error atau data ganda.
-- Batch yang dihapus user tidak boleh muncul lagi walau halaman di-refresh atau user login ulang.
-- Hard delete oleh admin pada batch yang sedang dibuka user tidak boleh bikin halaman user crash (tampilkan pesan "Batch tidak ditemukan").
-
-## Acceptance Criteria
-- [ ] Halaman utama hanya menampilkan batch aktif, ada tombol History yang membuka halaman terpisah.
-- [ ] Batch pindah ke History saat progress penuh, dan juga saat user menekan "Tandai Selesai" (walau belum penuh).
-- [ ] Status `selesai` dan `completed_at` tersimpan di database untuk kedua jalur.
-- [ ] Halaman History menampilkan total scan keseluruhan dan daftar batch selesai.
-- [ ] User bisa menghapus batch: hilang dari tampilan user, data tetap ada di database.
-- [ ] Admin melihat semua batch (termasuk yang dihapus user, dengan penanda) dan bisa menghapus permanen.
-- [ ] Pengecekan role admin dilakukan di server.
-- [ ] `Sudah scan` di header sama dengan total di halaman History.
-- [ ] Tidak ada regresi di generate/scan/batch baru.
+### Langkah 3: Verifikasi
+Jangan klaim selesai sebelum membuktikan lewat tes nyata:
+1. Buat batch kecil (misal range 3 item), scan sampai item terakhir lalu Next, dan pastikan batch pindah ke History.
+2. Buat batch lain, scan sebagian, tekan "Tandai Selesai", dan pastikan batch pindah ke History dengan progress sebagian (misal `1 / 3`).
+3. Buka Supabase Table Editor → `batches` dan pastikan kolom `status` = `selesai` dan `completed_at` terisi untuk kedua batch tersebut.
+4. Refresh halaman dan login ulang, batch tetap di History, tidak balik ke Aktif.
+5. Cek angka `Sudah scan` di header sama dengan total di halaman History.
+6. Tes di versi yang sudah di-deploy ke Vercel, bukan hanya di lokal.
 
 ## Output yang Diharapkan
-Setelah selesai, berikan ringkasan:
-1. File yang diubah/ditambah
-2. SQL migrasi lengkap (kolom baru, migrasi data lama, foreign key/cascade bila perlu)
-3. Cara tes manual untuk: selesai otomatis, "Tandai Selesai", hapus oleh user, hapus permanen oleh admin
+1. Penyebab bug yang ditemukan (jelaskan singkat, sertakan potongan kode/log bukti)
+2. File yang diubah dan apa perubahannya
+3. SQL tambahan (policy RLS atau lainnya) beserta cara menjalankannya, kalau dibutuhkan
+4. Hasil tes dari langkah verifikasi di atas
