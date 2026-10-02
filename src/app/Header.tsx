@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getDashboardData } from '@/lib/batchData'
 import { logout } from './login/actions'
 import { LogoutButton } from './LogoutButton'
 import Link from 'next/link'
@@ -13,19 +14,7 @@ export async function Header() {
   const isAdmin = profile?.role === 'admin'
 
   // Fetch all batches for the user to calculate grand totals
-  const { data: batches } = await supabase
-    .from('batches')
-    .select('angka_mulai, angka_selesai, scans(count)')
-    .eq('user_id', user.id);
-
-  let grandTotal = 0;
-  let totalScanned = 0;
-  if (batches) {
-    for (const b of batches) {
-      grandTotal += (b.angka_selesai - b.angka_mulai + 1);
-      totalScanned += b.scans?.[0]?.count || 0;
-    }
-  }
+  const { grandTotal, historyTotalScans } = await getDashboardData();
 
   return (
     <header className="bg-white border-b border-gray-200 py-3 px-4 flex justify-between items-center shadow-sm">
@@ -40,7 +29,7 @@ export async function Header() {
         </div>
         {!isAdmin && (
           <div className="text-[10px] text-gray-500 font-medium mt-0.5">
-            Total QR: {grandTotal} &bull; Sudah scan: {totalScanned}
+            Total QR: {grandTotal} &bull; Sudah scan: {historyTotalScans}
           </div>
         )}
       </div>
