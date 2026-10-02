@@ -1,7 +1,11 @@
--- 1. Tambahkan kolom status dan completed_at di tabel batches
+-- 1. Tambahkan kolom status, completed_at, dan current_index di tabel batches
 ALTER TABLE batches 
   ADD COLUMN IF NOT EXISTS status text DEFAULT 'aktif',
-  ADD COLUMN IF NOT EXISTS completed_at timestamptz;
+  ADD COLUMN IF NOT EXISTS completed_at timestamptz,
+  ADD COLUMN IF NOT EXISTS current_index integer;
+
+-- Update current_index to start if it is null
+UPDATE batches SET current_index = angka_mulai WHERE current_index IS NULL;
 
 -- 2. Tambahkan kolom untuk soft delete oleh user
 ALTER TABLE batches

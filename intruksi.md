@@ -1,61 +1,123 @@
-# Bugfix: Batch Tidak Pindah ke History Saat "Next" Terakhir / "Tandai Selesai"
+# Task: Resume Posisi Batch, Selesai Saat Keluar, dan Rollback di History
 
 ## Konteks
-Aplikasi **Voucher SN QR Gen** (Next.js di Vercel, database Supabase). Fitur History sudah diimplementasikan sesuai `prompt-v2.md`, dan SQL migrasi sudah dijalankan di Supabase (tabel `batches` sudah punya kolom `status`, `completed_at`, `deleted_by_user`, `deleted_at`).
+Aplikasi **Voucher SN QR Gen** (Next.js di Vercel, database Supabase).
 
-## Bug
-Saat user:
-1. menekan **Next** di item paling akhir dalam batch, atau
-2. menekan **"Tandai Selesai"**,
+Yang sudah ada:
+- Halaman **Daftar Batch** (batch aktif), tombol `+ Batch Baru`, tombol **History** (halaman terpisah).
+- Di dalam sebuah batch, user menekan **Next** untuk berpindah ke item/QR berikutnya, dan ada **progress bar** di bagian atas.
+- Tombol **Tandai Selesai**, fitur hapus (soft delete user, hard delete admin).
+- Tabel `batches` sudah punya kolom `status` (`aktif` / `selesai`), `completed_at`, `deleted_by_user`, `deleted_at`.
 
-batch **tidak pindah ke History**. Batch tetap tampil di daftar Batch Aktif dan tidak ada perubahan apa pun, tanpa pesan error yang terlihat.
+**Langkah pertama:** baca kode yang ada (halaman batch, handler tombol Next, `src/lib/batchData.ts`, `src/app/page.tsx`, halaman History, `Header.tsx`, dan cara progress dihitung sekarang). Kerjakan sebagai perubahan di atas kode yang ada, **jangan bikin ulang dari nol** dan jangan merusak alur generate QR, scan, dan batch baru.
 
-## Yang harus dikerjakan
+Ada **3 fitur** yang diminta. Kerjakan ketiganya, ikuti skenario di bawah persis.
 
-### Langkah 1: Diagnosis dulu, jangan langsung menebak
-Telusuri alur dari klik tombol sampai data tampil, lalu temukan titik yang putus. Cek satu per satu:
+---
 
-1. **Handler tombol**
-   - Apakah "Tandai Selesai" dan "Next" di item terakhir benar-benar memanggil fungsi yang menulis ke database (bukan hanya mengubah state lokal / `router.push`)?
-   - Apakah handler-nya `await` dan menangani error, atau error-nya ditelan diam-diam?
-2. **Query update ke Supabase**
-   - Apakah update menulis `status = 'selesai'` dan `completed_at = now()` ke tabel `batches` dengan filter `id` yang benar?
-   - Tambahkan `.select()` setelah `.update()` dan **log hasilnya**. Supabase mengembalikan `error = null` dengan 0 baris ter-update kalau terblokir RLS, jadi cek jumlah baris yang berubah, bukan hanya `error`.
-3. **RLS (Row Level Security)**
-   - Tabel `batches` memakai RLS. Cek apakah ada policy `UPDATE` untuk user pemilik batch (`auth.uid() = user_id`). Kalau tidak ada, update akan gagal diam-diam.
-   - Kalau policy kurang, berikan SQL policy yang dibutuhkan (UPDATE untuk owner, dan untuk admin sesuai mekanisme role yang ada), dan jelaskan cara menjalankannya di Supabase SQL Editor.
-4. **Pembacaan data (`getDashboardData` di `src/lib/batchData.ts`)**
-   - Apakah halaman Batch Aktif memfilter `status = 'aktif'` (atau `status != 'selesai'`) dan `deleted_by_user = false`?
-   - Apakah logika lama (`progress >= total` dinamis) masih bertabrakan dengan kolom `status`? Sumber kebenaran sekarang adalah kolom `status` di database. Hapus logika yang bertentangan.
-   - Apakah batch lama dengan `status = NULL` ditangani? (Kolom baru default `'aktif'`, tapi pastikan query tidak mengecualikan baris yang `NULL`.)
-5. **Caching / revalidasi**
-   - Halaman Daftar Batch bisa tersimpan di cache Next.js. Setelah update, pastikan ada `revalidatePath('/')` dan `revalidatePath('/history')` (kalau pakai server action / route handler), atau `router.refresh()` (kalau di client), dan fetch tidak ter-cache (`dynamic = 'force-dynamic'` atau `cache: 'no-store'` sesuai pola project).
-6. **Environment**
-   - Pastikan app yang dites terhubung ke project Supabase yang sama dengan yang tadi diubah SQL-nya (cek env var di lokal dan di Vercel).
+## Fitur 1: Progress bar + Resume posisi terakhir
 
-Laporkan dulu **penyebab sebenarnya** yang ditemukan (bisa lebih dari satu) sebelum memperbaiki.
+### Perilaku yang diminta
+- Saat user membuka sebuah batch dan menekan **Next**, **progress bar di bagian atas bertambah** (seperti perilaku sebelumnya, tampilkan juga angka, misal `45 / 197`).
+- **Posisi terakhir harus tersimpan di database** setiap kali user menekan Next (bukan hanya di state/memori/localStorage). Jadi data tidak hilang walau halaman di-refresh, browser ditutup, atau user login dari perangkat lain.
+- Saat user keluar dari batch (kembali ke daftar, tutup, refresh) lalu **membuka batch yang sama lagi**, batch **langsung menampilkan item di posisi terakhir** yang tadi ditekan Next, **dan progress bar menunjukkan angka yang sama** dengan terakhir kali. Bukan mulai dari awal.
+- Progress juga harus tampil benar di kartu pada Daftar Batch (`Progress: 45 / 197`).
 
-### Langkah 2: Perbaikan
-Pastikan perilaku berikut berjalan benar:
+### Implementasi
+- Cek dulu bagaimana progress dihitung sekarang. Kalau posisi terakhir sudah bisa diturunkan dari data yang ada, pakai itu. Kalau belum, tambahkan kolom di `batches`, misalnya `current_index integer not null default 0` (posisi terakhir yang sudah dilewati/ditekan Next), dan gunakan sebagai **sumber kebenaran tunggal** untuk progress bar, resume, dan angka di kartu.
+- Simpan posisi lewat server (API route / server action) pada setiap Next. Tangani error dan jangan sampai Next terasa lambat (boleh optimistic update, tapi harus rollback tampilan kalau gagal simpan).
+- Jangan menurunkan posisi secara tidak sengaja (race condition / klik cepat). Posisi hanya naik lewat Next, kecuali lewat rollback (Fitur 3).
 
-- **Tandai Selesai**: tampilkan dialog konfirmasi, lalu update `status = 'selesai'` dan `completed_at = now()`. Setelah berhasil, batch hilang dari Batch Aktif dan muncul di halaman History. Berlaku walau progress belum penuh.
-- **Next di item paling akhir**: saat scan/item terakhir masuk dan `progress == total`, update status ke `'selesai'` di database (lakukan di server, dalam alur yang sama dengan penyimpanan scan terakhir). Setelah itu arahkan user kembali ke Daftar Batch atau ke History.
-- Update harus **idempotent**: klik dua kali atau request ulang tidak boleh error atau menimbulkan data ganda.
-- Jika update gagal (RLS, jaringan, dll.), tampilkan **pesan error yang jelas** ke user (toast/alert), jangan diam saja.
-- Batch dengan `total = 0` tetap tidak boleh otomatis masuk History.
-- Header `Sudah scan` harus ikut berubah setelah batch pindah ke History (satu sumber hitungan dengan halaman History).
+---
 
-### Langkah 3: Verifikasi
-Jangan klaim selesai sebelum membuktikan lewat tes nyata:
-1. Buat batch kecil (misal range 3 item), scan sampai item terakhir lalu Next, dan pastikan batch pindah ke History.
-2. Buat batch lain, scan sebagian, tekan "Tandai Selesai", dan pastikan batch pindah ke History dengan progress sebagian (misal `1 / 3`).
-3. Buka Supabase Table Editor → `batches` dan pastikan kolom `status` = `selesai` dan `completed_at` terisi untuk kedua batch tersebut.
-4. Refresh halaman dan login ulang, batch tetap di History, tidak balik ke Aktif.
-5. Cek angka `Sudah scan` di header sama dengan total di halaman History.
-6. Tes di versi yang sudah di-deploy ke Vercel, bukan hanya di lokal.
+## Fitur 2: Batch masuk History saat user KELUAR setelah selesai
+
+### Perilaku yang diminta
+1. User menekan **Next** pada item paling akhir. Muncul **pemberitahuan "Batch selesai"** (modal/layar selesai). Pada titik ini progress sudah 100% dan posisi tersimpan.
+2. Batch **belum langsung dipindahkan** saat pemberitahuan muncul. Batch pindah ke History **ketika user keluar dari batch itu**, yaitu saat user menekan salah satu:
+   - tombol **"Kembali ke Daftar"** di layar selesai,
+   - tombol **Kembali** / panah back,
+   - tombol **Close / X** pada pemberitahuan atau batch.
+3. Pada saat itu: `status = 'selesai'`, `completed_at = now()` tersimpan di database, **lalu** user diarahkan ke Daftar Batch. Batch sudah tidak ada di Batch Aktif dan muncul di halaman History. Tunggu (`await`) update database selesai sebelum navigasi/refresh daftar, supaya daftar tidak menampilkan data lama.
+4. Tombol **Tandai Selesai** tetap berfungsi seperti sebelumnya (dengan konfirmasi, langsung pindah ke History walau belum penuh).
+
+### Pengaman (wajib)
+- Kalau user menutup tab / browser / kehilangan koneksi saat layar "Batch selesai" tampil, batch tidak boleh nyangkut selamanya di Aktif. Tambahkan **self-healing**: saat Daftar Batch dimuat, batch berstatus `aktif` yang posisinya sudah penuh (`current_index >= total`, `total > 0`) otomatis diubah menjadi `selesai` dengan `completed_at = now()` (atau waktu yang paling masuk akal).
+- Update status harus **idempotent**: klik ganda atau dipanggil dua kali tidak menimbulkan error atau data ganda.
+- Jika update gagal (misal RLS memblokir UPDATE), tampilkan pesan error yang jelas, jangan diam saja. Pastikan policy RLS `UPDATE` untuk pemilik batch tersedia; kalau kurang, berikan SQL policy-nya.
+- Batch dengan `total = 0` tidak boleh otomatis dianggap selesai.
+
+---
+
+## Fitur 3: Rollback di halaman History
+
+### Perilaku yang diminta
+Di halaman **History**, setiap kartu batch punya tombol **Rollback** (di samping tombol Hapus). Tujuannya: kalau user tidak sengaja menekan selesai, atau ada item yang terlewat, batch bisa **dikembalikan ke Batch Aktif dan dikerjakan lagi**.
+
+Saat Rollback ditekan, tampilkan dialog konfirmasi dengan pilihan titik mulai:
+1. **Lanjutkan dari posisi terakhir** (posisi tidak berubah). Pilihan ini **dinonaktifkan** kalau batch sudah 100% (tidak ada yang tersisa).
+2. **Mulai dari awal** (posisi dikembalikan ke 0 / item pertama).
+3. *(Nilai tambah, kerjakan kalau mudah)* **Mulai dari nomor tertentu**: user mengisi nomor item, posisi diset ke nomor itu.
+
+Setelah user memilih dan konfirmasi:
+- `status = 'aktif'`, `completed_at = NULL`.
+- Posisi (`current_index`) diset sesuai pilihan.
+- Batch **hilang dari History dan muncul lagi di Batch Aktif** dengan progress sesuai posisi baru, dan bisa dibuka serta dilanjutkan dengan Next seperti biasa.
+- **Jangan menghapus data permanen** saat rollback (jangan hapus baris scan/log). Rollback hanya mengubah status dan posisi.
+- Rollback hanya untuk batch milik user itu sendiri dan yang tidak dihapus (`deleted_by_user = false`). Admin boleh melakukan rollback pada batch mana pun. Cek hak akses di sisi server.
+
+### Dampak ke angka
+- Header `Sudah scan` dan ringkasan total di halaman History dihitung dari **batch yang berstatus selesai**. Setelah rollback, batch itu keluar dari History sehingga angkanya **otomatis berkurang**, dan bertambah lagi saat batch selesai kembali. Pakai satu fungsi hitung yang sama (`getHistoryTotal()` atau sejenisnya) agar header dan History tidak pernah beda angka.
+
+---
+
+## Skenario Tes (agen WAJIB menjalankan dan melaporkan hasilnya)
+**A. Resume posisi**
+1. Buat batch kecil (misal 10 item). Buka batch, tekan Next sampai item ke-5, progress bar menunjukkan `5 / 10`.
+2. Kembali ke Daftar Batch, kartu menunjukkan `5 / 10`.
+3. Buka batch itu lagi: langsung di item ke-5, progress bar `5 / 10`. Refresh dan login ulang, posisinya tetap.
+
+**B. Selesai saat keluar**
+1. Lanjutkan Next sampai item terakhir. Muncul pemberitahuan "Batch selesai".
+2. Tekan "Kembali ke Daftar" (ulangi tes dengan tombol Back dan tombol Close/X). Batch hilang dari Aktif, muncul di History, `Sudah scan` di header bertambah.
+3. Cek tabel `batches` di Supabase: `status = 'selesai'`, `completed_at` terisi.
+4. Tes pengaman: sampai di layar "Batch selesai", tutup tab langsung. Buka lagi aplikasi: batch otomatis sudah ada di History.
+
+**C. Tandai Selesai manual**
+Batch baru, Next beberapa kali (belum penuh), tekan Tandai Selesai lalu konfirmasi. Batch pindah ke History dengan progress sebagian.
+
+**D. Rollback**
+1. Di History, tekan Rollback pada batch yang selesai penuh. Pilihan "Lanjutkan dari posisi terakhir" nonaktif.
+2. Pilih "Mulai dari awal". Batch muncul di Aktif dengan progress `0 / 10`, hilang dari History, dan angka `Sudah scan` berkurang.
+3. Ulangi dengan batch hasil "Tandai Selesai" (belum penuh). Pilih "Lanjutkan dari posisi terakhir". Batch kembali ke Aktif di posisi terakhir.
+
+**E. Edge case**
+Klik ganda tombol selesai/rollback tidak menimbulkan error. Batch yang dihapus user tidak muncul di History dan tidak bisa di-rollback oleh user. Tes juga di versi Vercel (bukan hanya lokal).
+
+---
+
+## Yang TIDAK boleh dilakukan
+- Jangan menyimpan posisi hanya di `localStorage` / state. Wajib di database.
+- Jangan memindahkan batch ke History pada saat pemberitahuan "Batch selesai" muncul. Pindahnya saat user keluar (kecuali lewat pengaman self-healing).
+- Jangan menghapus data scan/QR saat rollback.
+- Jangan mengubah gaya visual yang ada (warna merah, font, kartu) dan jangan merusak responsif mobile/desktop.
+- Jangan menambah dependency baru kalau tidak perlu.
+- Jangan klaim selesai tanpa menjalankan skenario tes di atas.
+
+## Acceptance Criteria
+- [ ] Progress bar bertambah tiap Next, posisi tersimpan di database.
+- [ ] Membuka ulang batch langsung ke posisi terakhir dengan progress bar yang sama.
+- [ ] Kartu di Daftar Batch menampilkan progress yang sama dengan posisi tersimpan.
+- [ ] Next terakhir menampilkan "Batch selesai"; keluar (Kembali ke Daftar / Back / Close) memindahkan batch ke History.
+- [ ] Pengaman: batch penuh yang tidak sempat ditutup rapi tetap pindah ke History saat daftar dimuat.
+- [ ] Tandai Selesai manual tetap berfungsi.
+- [ ] History punya tombol Rollback dengan pilihan titik mulai; setelah rollback batch kembali ke Aktif tanpa kehilangan data.
+- [ ] `Sudah scan` di header sinkron dengan total di History (berkurang saat rollback, bertambah saat selesai lagi).
+- [ ] Hak akses rollback dicek di server.
+- [ ] Semua skenario tes A–E lulus.
 
 ## Output yang Diharapkan
-1. Penyebab bug yang ditemukan (jelaskan singkat, sertakan potongan kode/log bukti)
-2. File yang diubah dan apa perubahannya
-3. SQL tambahan (policy RLS atau lainnya) beserta cara menjalankannya, kalau dibutuhkan
-4. Hasil tes dari langkah verifikasi di atas
+1. Ringkasan penyebab/rancangan: bagaimana posisi disimpan dan dari mana progress dihitung sekarang
+2. Daftar file yang diubah/ditambah
+3. SQL yang perlu dijalankan di Supabase (kolom baru, policy RLS), lengkap dengan cara menjalankannya
+4. Hasil tes skenario A–E (lulus/gagal, beserta catatan)

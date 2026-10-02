@@ -119,25 +119,72 @@ export async function softDeleteBatch(batchId: string) {
   return true
 }
 
+export async function saveCurrentIndex(batchId: string, currentIndex: number) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { error } = await supabase
+    .from('batches')
+    .update({ current_index: currentIndex })
+    .eq('id', batchId)
+    .eq('user_id', user.id)
+
+  if (error) throw new Error(error.message)
+  return true
+}
+
+export async function rollbackBatch(batchId: string, startIndex: number) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  // Cek apakah admin atau pemilik batch. Rollback diizinkan untuk admin juga.
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+  const isAdmin = profile?.role === 'admin'
+
+  let query = supabase.from('batches').update({ 
+    status: 'aktif',
+    completed_at: null,
+    current_index: startIndex
+  }).eq('id', batchId).eq('deleted_by_user', false)
+
+  if (!isAdmin) {
+    query = query.eq('user_id', user.id)
+  }
+
+  const { data, error } = await query.select()
+
+  if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('Rollback failed, possibly blocked by RLS or not found.')
+  
+  revalidatePath('/')
+  revalidatePath('/history')
+  return true
+}
+
 export async function getBatchWithProgress(id: string) {
   const supabase = await createClient()
   
   const { data, error } = await supabase
     .from('batches')
-    .select('*, scans(count)')
+    .select('*')
     .eq('id', id)
     .single()
     
   if (error) throw new Error(error.message)
   
-  const totalScans = data.scans?.[0]?.count || 0;
+  // Progress is calculated from current_index
+  const currentIndex = data.current_index ?? data.angka_mulai;
+  const progress = Math.max(0, currentIndex - data.angka_mulai);
   
   return {
     id: data.id,
     kodeDasar: data.kode_dasar_sn,
     start: data.angka_mulai,
     end: data.angka_selesai,
-    progress: totalScans,
+    progress: progress,
+    currentIndex: currentIndex,
     status: data.status || 'aktif',
     deletedByUser: data.deleted_by_user || false
   }

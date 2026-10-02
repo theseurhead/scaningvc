@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DeleteBatchButton } from "./DeleteBatchButton";
+import { RollbackBatchButton } from "./RollbackBatchButton";
 
 export function BatchCard({ batch }: { batch: any }) {
   const total = batch.end - batch.start + 1;
@@ -50,7 +51,8 @@ export function BatchCard({ batch }: { batch: any }) {
           </div>
         </div>
       </Link>
-      <div className="absolute top-4 right-20 z-10">
+      <div className="absolute top-4 right-20 z-10 flex gap-2">
+        {batch.status === 'selesai' && <RollbackBatchButton batch={batch} />}
         <DeleteBatchButton batchId={batch.id} />
       </div>
     </div>

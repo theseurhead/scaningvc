@@ -4,7 +4,7 @@ import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
-import { getBatchWithProgress, markBatchAsCompleted } from "../actions";
+import { getBatchWithProgress, markBatchAsCompleted, saveCurrentIndex } from "../actions";
 
 const PAGE_SIZE_OPTIONS = [10, 30, 50, 100];
 
@@ -140,23 +140,36 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
     if (currentIndex <= effectiveEnd) {
       const nextIndex = currentIndex + pageSize;
       const clampedIndex = Math.min(nextIndex, effectiveEnd + 1);
+      
+      const oldIndex = currentIndex;
       setCurrentIndex(clampedIndex);
       window.scrollTo({ top: 0, behavior: "smooth" });
 
-      if (!activeFilter && clampedIndex > batch.end) {
-        if (batch.progress >= totalCount && batch.status !== "selesai") {
-          setIsCompleting(true);
-          try {
-            await markBatchAsCompleted(id);
-            router.push("/history");
-          } catch (e: any) {
-            console.error(e);
-            alert("Gagal memindahkan batch ke History: " + e.message);
-            setIsCompleting(false);
-          }
+      if (!activeFilter) {
+        try {
+          await saveCurrentIndex(id, clampedIndex);
+        } catch (e: any) {
+          console.error(e);
+          setCurrentIndex(oldIndex);
+          alert("Gagal menyimpan progres: " + e.message);
         }
       }
     }
+  };
+
+  const handleExit = async () => {
+    if (!activeFilter && derivedStatus !== 'selesai' && currentIndex > batch.end && totalCount > 0) {
+      setIsCompleting(true);
+      try {
+        await markBatchAsCompleted(id);
+      } catch (e: any) {
+        console.error(e);
+        alert("Gagal memindahkan batch ke History: " + e.message);
+        setIsCompleting(false);
+        return;
+      }
+    }
+    router.push(batch.status === 'selesai' ? "/history" : "/");
   };
 
   const handlePrev = () => {
@@ -208,11 +221,11 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
     <div className="min-h-screen bg-gray-50 text-gray-900 p-4 flex flex-col">
       {/* Header */}
       <header className="py-4 flex items-center max-w-md mx-auto w-full">
-        <Link href={batch.status === 'selesai' ? "/history" : "/"} className="text-gray-500 hover:text-gray-900 p-2 -ml-2 rounded-full hover:bg-gray-200 transition-colors shrink-0">
+        <button onClick={handleExit} className="text-gray-500 hover:text-gray-900 p-2 -ml-2 rounded-full hover:bg-gray-200 transition-colors shrink-0">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
           </svg>
-        </Link>
+        </button>
         <div className="flex-1 text-center pr-2">
           <h1 className="text-lg font-bold text-gray-800 tracking-tight flex items-center justify-center gap-2">
             Batch {batch.kodeDasar}
@@ -387,9 +400,9 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
                   Tutup Filter & Lanjut Batch
                 </button>
               ) : (
-                <Link href={batch.status === 'selesai' ? "/history" : "/"} className="w-full px-6 py-4 bg-white border border-gray-200 text-gray-700 font-bold rounded-2xl text-center block">
+                <button onClick={handleExit} className="w-full px-6 py-4 bg-white border border-gray-200 text-gray-700 font-bold rounded-2xl text-center block">
                   Kembali ke Daftar
-                </Link>
+                </button>
               )}
             </div>
           </div>

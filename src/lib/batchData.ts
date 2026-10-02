@@ -22,11 +22,24 @@ export async function getDashboardData() {
   let historyTotalScans = 0;
   let historyTotalBatches = 0;
 
+  // For self-healing
+  const batchesToComplete: string[] = [];
+
   (batchesData || []).forEach((batch: any) => {
-    const totalScans = batch.scans?.[0]?.count || 0;
+    const currentIndex = batch.current_index ?? batch.angka_mulai;
+    const progress = Math.max(0, currentIndex - batch.angka_mulai);
+    const totalCount = batch.angka_selesai - batch.angka_mulai + 1;
     // Strictly rely on the database 'status' column
-    const isSelesai = batch.status === 'selesai';
+    let isSelesai = batch.status === 'selesai';
     
+    // Self-healing: if progress >= totalCount, totalCount > 0, and status is still 'aktif'
+    if (!isSelesai && totalCount > 0 && progress >= totalCount) {
+      isSelesai = true;
+      batchesToComplete.push(batch.id);
+      batch.status = 'selesai';
+      batch.completed_at = new Date().toISOString();
+    }
+
     const b = {
       id: batch.id,
       kodeDasar: batch.kode_dasar_sn,
@@ -35,19 +48,27 @@ export async function getDashboardData() {
       status: batch.status || 'aktif',
       createdAt: batch.created_at,
       completedAt: batch.completed_at || batch.created_at,
-      progress: totalScans
+      progress: progress
     };
 
     grandTotal += (b.end - b.start + 1);
 
     if (isSelesai) {
       historyBatches.push(b);
-      historyTotalScans += totalScans;
+      historyTotalScans += progress;
       historyTotalBatches++;
     } else {
       activeBatches.push(b);
     }
   });
+
+  // Execute self-healing in background (no await needed for UI render)
+  if (batchesToComplete.length > 0) {
+    supabase.from('batches').update({ 
+      status: 'selesai', 
+      completed_at: new Date().toISOString() 
+    }).in('id', batchesToComplete).then();
+  }
 
   // Sort history by completedAt descending (newest finished first)
   historyBatches.sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
