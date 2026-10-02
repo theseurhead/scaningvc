@@ -8,21 +8,19 @@ export function BatchCard({ batch }: { batch: any }) {
     <div className="relative group">
       <Link href={`/batch/${batch.id}`} className="block">
         <div className={`bg-white p-5 rounded-2xl shadow-sm border ${batch.status === 'selesai' ? 'border-green-100' : 'border-gray-100'} hover:shadow-md transition-all active:scale-[0.98]`}>
-          <div className="flex justify-between items-start mb-2">
-            <h2 className="text-lg font-bold text-gray-800 font-mono tracking-tight">
+          <div className="flex items-center gap-3 mb-2 pr-20">
+            <h2 className="text-lg font-bold text-gray-800 font-mono tracking-tight truncate">
               {batch.kodeDasar}
             </h2>
-            <div className="flex items-center gap-2">
-              <span
-                className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
-                  batch.status === "aktif"
-                    ? "bg-blue-100 text-blue-700"
-                    : "bg-green-100 text-green-700"
-                }`}
-              >
-                {batch.status.toUpperCase()}
-              </span>
-            </div>
+            <span
+              className={`text-[10px] px-2 py-0.5 rounded-full font-bold tracking-wider uppercase shrink-0 ${
+                batch.status === "aktif"
+                  ? "bg-blue-100 text-blue-700"
+                  : "bg-green-100 text-green-700"
+              }`}
+            >
+              {batch.status}
+            </span>
           </div>
           
           <div className="flex justify-between items-end mt-4">
@@ -51,7 +49,7 @@ export function BatchCard({ batch }: { batch: any }) {
           </div>
         </div>
       </Link>
-      <div className="absolute top-4 right-20 z-10 flex gap-2">
+      <div className="absolute top-5 right-5 z-10 flex gap-2">
         {batch.status === 'selesai' && <RollbackBatchButton batch={batch} />}
         <DeleteBatchButton batchId={batch.id} />
       </div>
