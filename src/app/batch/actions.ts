@@ -55,6 +55,63 @@ export async function saveScan(batchId: string, sn: string) {
     throw new Error(error.message)
   }
   
+  // Auto mark as completed if progress == total
+  const { data: batch } = await supabase
+    .from('batches')
+    .select('*, scans(count)')
+    .eq('id', batchId)
+    .single()
+    
+  if (batch) {
+    const totalScans = batch.scans?.[0]?.count || 0;
+    const totalCount = batch.angka_selesai - batch.angka_mulai + 1;
+    if (totalCount > 0 && totalScans >= totalCount && batch.status !== 'selesai') {
+      await markBatchAsCompleted(batchId);
+    }
+  }
+
+  return true
+}
+
+export async function markBatchAsCompleted(batchId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { error } = await supabase
+    .from('batches')
+    .update({ 
+      status: 'selesai', 
+      completed_at: new Date().toISOString() 
+    })
+    .eq('id', batchId)
+    .eq('user_id', user.id)
+
+  if (error) throw new Error(error.message)
+  
+  revalidatePath('/')
+  revalidatePath('/history')
+  return true
+}
+
+export async function softDeleteBatch(batchId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { error } = await supabase
+    .from('batches')
+    .update({ 
+      deleted_by_user: true, 
+      deleted_at: new Date().toISOString() 
+    })
+    .eq('id', batchId)
+    .eq('user_id', user.id)
+
+  if (error) throw new Error(error.message)
+  
+  revalidatePath('/')
+  revalidatePath('/history')
   return true
 }
 
@@ -76,7 +133,9 @@ export async function getBatchWithProgress(id: string) {
     kodeDasar: data.kode_dasar_sn,
     start: data.angka_mulai,
     end: data.angka_selesai,
-    progress: totalScans
+    progress: totalScans,
+    status: data.status || 'aktif',
+    deletedByUser: data.deleted_by_user || false
   }
 }
 

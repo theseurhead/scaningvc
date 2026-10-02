@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getAdminBatches, getAdminSummary, getBatchHistory, getUsers } from './actions';
+import { getAdminBatches, getAdminSummary, getBatchHistory, getUsers, hardDeleteBatch } from './actions';
 import { logout } from '../login/actions';
 import Link from 'next/link';
 
@@ -54,9 +54,22 @@ export default function AdminPage() {
     setHistoryLoading(false);
   };
 
+  const handleDelete = async (batchId: string) => {
+    if (!window.confirm("Hapus permanen batch ini? Semua data scan terkait akan hilang dan tidak bisa dikembalikan.")) {
+      return;
+    }
+    try {
+      await hardDeleteBatch(batchId);
+      loadData();
+    } catch (err) {
+      console.error(err);
+      alert("Gagal menghapus batch.");
+    }
+  };
+
   const exportCsv = () => {
     // Simple CSV export of current view
-    const headers = ['Kode Dasar SN', 'Angka Mulai', 'Angka Selesai', 'Jumlah SN', 'Nama', 'Username', 'Waktu Dibuat'];
+    const headers = ['Kode Dasar SN', 'Angka Mulai', 'Angka Selesai', 'Jumlah SN', 'Nama', 'Username', 'Waktu Dibuat', 'Status'];
     const rows = batchesData.map(b => [
       b.kode_dasar_sn,
       b.angka_mulai,
@@ -64,7 +77,8 @@ export default function AdminPage() {
       (b.angka_selesai - b.angka_mulai + 1),
       b.profiles?.nama || '-',
       b.profiles?.username || '-',
-      new Date(b.created_at).toLocaleString('id-ID')
+      new Date(b.created_at).toLocaleString('id-ID'),
+      b.deleted_by_user ? 'Dihapus User' : 'Aktif'
     ]);
     
     let csvContent = "data:text/csv;charset=utf-8," 
@@ -163,8 +177,15 @@ export default function AdminPage() {
                   <td colSpan={6} className="text-center py-8 text-gray-500">Belum ada batch</td>
                 </tr>
               ) : batchesData.map((batch) => (
-                <tr key={batch.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 font-mono font-bold text-gray-800">{batch.kode_dasar_sn}</td>
+                <tr key={batch.id} className={`hover:bg-gray-50 transition-colors ${batch.deleted_by_user ? 'opacity-70 bg-gray-50' : ''}`}>
+                  <td className="px-6 py-4 font-mono font-bold text-gray-800">
+                    {batch.kode_dasar_sn}
+                    {batch.deleted_by_user && (
+                      <span className="ml-2 px-2 py-0.5 text-[10px] bg-red-100 text-red-600 rounded-md font-bold uppercase tracking-wider whitespace-nowrap">
+                        Dihapus user
+                      </span>
+                    )}
+                  </td>
                   <td className="px-6 py-4 font-mono text-gray-600">
                     {batch.angka_mulai} - {batch.angka_selesai}
                   </td>
@@ -178,9 +199,12 @@ export default function AdminPage() {
                   <td className="px-6 py-4 text-gray-600">
                     {new Date(batch.created_at).toLocaleString('id-ID')}
                   </td>
-                  <td className="px-6 py-4 text-right">
-                    <button onClick={() => viewHistory(batch.id)} className="text-blue-600 hover:text-blue-800 font-bold text-xs bg-blue-50 px-3 py-1.5 rounded-lg">
+                  <td className="px-6 py-4 text-right space-x-2">
+                    <button onClick={() => viewHistory(batch.id)} className="text-blue-600 hover:text-blue-800 font-bold text-xs bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors">
                       Riwayat
+                    </button>
+                    <button onClick={() => handleDelete(batch.id)} className="text-red-600 hover:text-red-800 font-bold text-xs bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors">
+                      Hapus Permanen
                     </button>
                   </td>
                 </tr>

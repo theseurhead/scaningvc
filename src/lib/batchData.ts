@@ -12,6 +12,7 @@ export async function getDashboardData() {
     .from('batches')
     .select('*, scans(count)')
     .eq('user_id', user.id)
+    .neq('deleted_by_user', true) // handles null or false
     .order('created_at', { ascending: false });
 
   const activeBatches: any[] = [];
@@ -23,18 +24,17 @@ export async function getDashboardData() {
 
   (batchesData || []).forEach((batch: any) => {
     const totalScans = batch.scans?.[0]?.count || 0;
-    const totalCount = batch.angka_selesai - batch.angka_mulai + 1;
-    // Batch is considered finished if status is 'selesai' OR if progress == total (and total > 0)
-    const isSelesai = batch.status === 'selesai' || (totalCount > 0 && totalScans >= totalCount);
+    // Strictly rely on the database 'status' column
+    const isSelesai = batch.status === 'selesai';
     
     const b = {
       id: batch.id,
       kodeDasar: batch.kode_dasar_sn,
       start: batch.angka_mulai,
       end: batch.angka_selesai,
-      status: isSelesai ? "selesai" : "aktif",
+      status: batch.status || 'aktif',
       createdAt: batch.created_at,
-      completedAt: batch.completed_at || batch.created_at, // fallback to created_at if completed_at doesn't exist
+      completedAt: batch.completed_at || batch.created_at,
       progress: totalScans
     };
 

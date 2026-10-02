@@ -1,82 +1,81 @@
-# Task: Tambah Fitur "History Scan" di Voucher SN QR Gen
+# Task (Revisi): History Terpisah, "Tandai Selesai", dan Hapus (User vs Admin)
 
 ## Konteks
-Aplikasi web (deploy di Vercel, kemungkinan Next.js) bernama **Voucher SN QR Gen**.
-Halaman utama menampilkan **"Daftar Batch"**, berisi kartu-kartu batch dengan:
-- Nomor batch (contoh: `40009177`, `90194273`)
-- Badge status (`AKTIF`)
-- Progress `X / Y` (contoh: `0 / 197`)
-- Tanggal dibuat
-- Tombol panah untuk masuk ke batch (generate QR)
-- Tombol `+ Batch Baru` di bawah
+Aplikasi **Voucher SN QR Gen** (Next.js di Vercel, database Supabase). Fitur History sebelumnya sudah dibuat, tapi **perlu direvisi** karena konsepnya salah:
 
-Header kiri atas menampilkan username dan statistik kecil:
-`Total QR: 847 • Sudah scan: 0`
+- Sebelumnya: History ditaruh satu halaman dengan Batch Aktif, dan batch dianggap selesai otomatis hanya berdasarkan `progress >= total`.
+- Yang benar: History adalah **halaman/form terpisah**, dan batch masuk History lewat **dua cara** (lihat di bawah). Selain itu ada fitur **hapus** dengan perilaku berbeda untuk user dan admin.
 
-**Langkah pertama:** baca dulu struktur project (routing, komponen halaman Daftar Batch, skema database/state, API route) sebelum mengubah apa pun. Ikuti pola kode, styling, dan library yang sudah dipakai. Jangan menambah dependency baru kalau tidak perlu.
+**Langkah pertama:** baca kode yang sudah ada (`src/lib/batchData.ts`, `src/app/page.tsx`, `src/app/Header.tsx`, alur scan/generate QR, tombol "Tandai Selesai" yang sudah ada, dan bagian admin). Refactor dari hasil kerja sebelumnya, jangan bikin ulang dari nol. Ikuti pola kode dan styling yang sudah ada.
 
-## Tujuan
-1. Tambah **bagian History** untuk batch/scan yang sudah selesai.
-2. Di History, tampilkan **total scan keseluruhan**.
-3. Angka **"Sudah scan"** di header diisi dari **total scan yang ada di History** (satu sumber data, bukan counter terpisah).
+## Perubahan Utama
 
-## Requirement Detail
+### 1. Halaman History terpisah
+- Hapus section History dari halaman Daftar Batch. Halaman utama **hanya menampilkan batch aktif**.
+- Tambah **tombol "History"** di halaman Daftar Batch (taruh di dekat judul atau di samping tombol `+ Batch Baru`, sesuaikan dengan layout) yang membuka **halaman terpisah** (contoh route `/history`).
+- Halaman History punya tombol kembali ke Daftar Batch.
+- Isi halaman History:
+  - Ringkasan di atas: **Total scan keseluruhan** dan jumlah batch selesai (contoh: `Total scan: 847 • 4 batch selesai`).
+  - Daftar kartu batch selesai (gaya konsisten dengan kartu sekarang, badge hijau `SELESAI`): nomor batch, jumlah scan (`120 / 197`), tanggal dibuat, tanggal selesai.
+  - Urutkan dari yang paling baru selesai.
+  - Empty state: "Belum ada batch yang selesai".
+  - Tiap kartu punya tombol **Hapus** (lihat bagian 3).
 
-### 1. Definisi "selesai"
-- Batch dianggap **selesai** ketika `progress == total` (semua QR di batch sudah ter-scan).
-- Saat batch selesai:
-  - Status berubah dari `AKTIF` menjadi `SELESAI` (simpan `completed_at` / timestamp selesai).
-  - Batch **hilang dari daftar aktif** dan **pindah ke History**.
-- Batch yang belum selesai tetap di Daftar Batch seperti sekarang.
-- Kalau sudah ada field status/selesai di data, pakai itu. Kalau belum, tambahkan (beserta migrasi/penyesuaian skema jika ada database).
+### 2. Batch masuk History lewat DUA cara
+1. **Otomatis:** user scan/lanjut isi batch (next, next) sampai semua QR selesai (`progress == total`). Begitu scan terakhir masuk, batch langsung pindah ke History.
+2. **Manual:** user menekan tombol **"Tandai Selesai"**. Batch langsung dianggap selesai dan pindah ke History **meskipun progress belum penuh** (contoh `120 / 197`). Tambahkan dialog konfirmasi sebelum diproses ("Tandai batch ini selesai? Batch akan dipindah ke History.").
 
-### 2. UI History
-- Tambahkan akses ke History di halaman Daftar Batch, pilih salah satu yang paling cocok dengan UI sekarang:
-  - Tab/toggle di atas daftar: `Aktif | History`, atau
-  - Section "History" di bawah daftar batch aktif.
-- Kartu di History memakai gaya yang konsisten dengan kartu batch sekarang, menampilkan:
-  - Nomor batch
-  - Badge `SELESAI` (warna hijau, beda dari `AKTIF`)
-  - Jumlah scan (`197 / 197`)
-  - Tanggal dibuat dan tanggal selesai
-- Urutkan dari yang paling baru selesai.
-- Empty state jika belum ada history: teks seperti "Belum ada batch yang selesai".
+Aturan penting:
+- Status **disimpan di database** (kolom `status` = `'aktif' | 'selesai'` dan `completed_at`), **bukan** dihitung dinamis saja.
+- **Kedua jalur** di atas harus menulis `status = 'selesai'` dan `completed_at = now()`. Untuk jalur otomatis, update dilakukan di alur scan saat scan terakhir masuk (lakukan di sisi server/dalam transaksi yang sama, bukan hanya di client).
+- Batch `selesai` tidak bisa kembali ke `aktif` dan tidak bisa discan lagi.
+- Batch dengan `total = 0` tidak boleh masuk History lewat jalur otomatis.
+- Pastikan kolom `status` dan `completed_at` ada di tabel `batches`. Kalau belum, sediakan SQL migrasi (`ADD COLUMN IF NOT EXISTS`). Untuk data lama yang sudah penuh, `completed_at` isi dengan **waktu scan terakhir batch itu** (`MAX` dari kolom waktu di tabel `scans`), bukan `created_at`. Sesuaikan nama kolom dengan skema asli.
 
-### 3. Total scan di History
-- Di bagian atas History, tampilkan ringkasan:
-  - **Total scan keseluruhan** = jumlah semua scan dari seluruh batch di History.
-  - (Opsional) jumlah batch selesai.
-- Contoh: `Total scan: 847 • 4 batch selesai`.
+### 3. Fitur Hapus: beda perilaku User vs Admin
+Gunakan **soft delete** untuk sisi user dan **hard delete** untuk admin.
 
-### 4. Sinkron dengan header
-- Header `Sudah scan: N` harus memakai **angka total scan dari History** (nilai yang sama dengan poin 3).
-- Hitung dari satu fungsi/query yang sama (mis. `getHistoryTotal()`), supaya header dan History tidak pernah beda angka.
-- Header ter-update otomatis setelah ada batch yang selesai tanpa perlu refresh manual (refetch / revalidate / update state sesuai pola project).
+**Sisi User**
+- Tombol **Hapus** tersedia di kartu batch (di History, dan juga di Batch Aktif jika masuk akal dengan UI sekarang). Wajib ada dialog konfirmasi.
+- Saat user menghapus: batch **hilang dari tampilan user** (daftar aktif, History, dan hitungan total), tapi **data tetap ada di database**.
+- Implementasi: tambah kolom `deleted_by_user boolean default false` dan `deleted_at timestamptz` (atau nama setara) di tabel `batches`. Jangan hapus baris dan jangan hapus data `scans`-nya.
+- Semua query sisi user harus memfilter `deleted_by_user = false`.
+
+**Sisi Admin**
+- Admin **tetap melihat semua batch**, termasuk yang dihapus user. Batch yang dihapus user diberi penanda jelas (badge/label "Dihapus user" beserta waktu hapusnya).
+- Admin punya tombol **Hapus permanen** di menu admin. Ini **hard delete**: baris batch dan semua data terkait (`scans`, QR, dsb.) benar-benar dihapus dari database. Wajib ada dialog konfirmasi yang jelas bahwa aksi ini tidak bisa dibatalkan.
+- (Opsional) Admin bisa memulihkan batch yang dihapus user (set `deleted_by_user = false`).
+- Cek hak akses **di sisi server** (API route / server action), bukan hanya menyembunyikan tombol di UI. User biasa tidak boleh bisa memanggil hard delete. Pakai mekanisme role/admin yang sudah ada di project.
+- Jika tabel `scans` punya foreign key ke `batches`, pastikan hard delete berjalan benar (pakai `ON DELETE CASCADE` atau hapus berurutan dalam satu transaksi).
+
+### 4. Header "Sudah scan"
+- `Sudah scan: N` di header = **total scan dari batch di History milik user tersebut** (status `selesai` dan `deleted_by_user = false`). Hitung dari satu fungsi yang sama dengan ringkasan di halaman History (`getHistoryTotal()` atau sejenisnya) supaya angkanya selalu sama.
 - `Total QR` di header tetap seperti semula.
+- Angka ter-update otomatis setelah batch selesai atau dihapus (revalidate/refetch sesuai pola project).
 
-### 5. Hal yang tidak boleh berubah
-- Alur generate QR, scan, dan pembuatan batch baru tetap berfungsi seperti sekarang.
-- Gaya visual yang ada (warna merah, font, layout card) tetap dipertahankan.
-- Responsif di mobile dan desktop.
+## Hal yang tidak boleh berubah
+- Alur generate QR, scan, dan `+ Batch Baru` tetap berfungsi.
+- Gaya visual (warna merah, font, kartu) tetap konsisten, responsif di mobile dan desktop.
 
 ## Edge Case
-- Batch dengan `total = 0` jangan dianggap selesai.
 - Scan ganda pada QR yang sama tidak boleh menambah hitungan dua kali.
-- Batch yang sudah masuk History tidak boleh kembali ke status aktif.
-- Data lama (batch yang sudah ada sebelum fitur ini) harus tetap aman: kalau ada yang `progress == total`, boleh dimigrasi ke History.
-- Jika user logout/login lagi, history tetap ada (data persisten, bukan hanya state di memori).
+- "Tandai Selesai" ditekan dua kali (double click) tidak boleh menimbulkan error atau data ganda.
+- Batch yang dihapus user tidak boleh muncul lagi walau halaman di-refresh atau user login ulang.
+- Hard delete oleh admin pada batch yang sedang dibuka user tidak boleh bikin halaman user crash (tampilkan pesan "Batch tidak ditemukan").
 
 ## Acceptance Criteria
-- [ ] Ada tab/section History di halaman Daftar Batch.
-- [ ] Batch yang progress-nya penuh otomatis pindah ke History dengan badge `SELESAI`.
-- [ ] History menampilkan total scan keseluruhan.
-- [ ] `Sudah scan` di header sama persis dengan total scan di History.
-- [ ] Angka header dan History ikut berubah saat ada batch selesai baru.
-- [ ] Tidak ada regresi di fitur generate/scan/batch baru.
-- [ ] Tampilan rapi di mobile dan desktop.
+- [ ] Halaman utama hanya menampilkan batch aktif, ada tombol History yang membuka halaman terpisah.
+- [ ] Batch pindah ke History saat progress penuh, dan juga saat user menekan "Tandai Selesai" (walau belum penuh).
+- [ ] Status `selesai` dan `completed_at` tersimpan di database untuk kedua jalur.
+- [ ] Halaman History menampilkan total scan keseluruhan dan daftar batch selesai.
+- [ ] User bisa menghapus batch: hilang dari tampilan user, data tetap ada di database.
+- [ ] Admin melihat semua batch (termasuk yang dihapus user, dengan penanda) dan bisa menghapus permanen.
+- [ ] Pengecekan role admin dilakukan di server.
+- [ ] `Sudah scan` di header sama dengan total di halaman History.
+- [ ] Tidak ada regresi di generate/scan/batch baru.
 
 ## Output yang Diharapkan
-Setelah selesai, berikan ringkasan singkat:
+Setelah selesai, berikan ringkasan:
 1. File yang diubah/ditambah
-2. Perubahan skema data (jika ada) dan cara menjalankan migrasinya
-3. Cara mengetes fitur ini secara manual
+2. SQL migrasi lengkap (kolom baru, migrasi data lama, foreign key/cascade bila perlu)
+3. Cara tes manual untuk: selesai otomatis, "Tandai Selesai", hapus oleh user, hapus permanen oleh admin

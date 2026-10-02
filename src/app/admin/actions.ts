@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { revalidatePath } from 'next/cache'
 
 export async function getAdminSummary() {
   const supabase = await createClient()
@@ -27,7 +28,7 @@ export async function getAdminBatches(params: {
   const supabase = await createClient()
 
   let query = supabase.from('batches').select(`
-    id, user_id, kode_dasar_sn, angka_mulai, angka_selesai, created_at,
+    id, user_id, kode_dasar_sn, angka_mulai, angka_selesai, created_at, deleted_by_user, deleted_at,
     profiles ( nama, username )
   `, { count: 'exact' })
 
@@ -56,6 +57,28 @@ export async function getAdminBatches(params: {
     data: data || [],
     count: count || 0,
   }
+}
+
+export async function hardDeleteBatch(batchId: string) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  // Verify admin role
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+  if (profile?.role !== 'admin') {
+    throw new Error('Forbidden: Admin only')
+  }
+
+  // With ON DELETE CASCADE on scans.batch_id, this single delete should clear related scans.
+  // We'll explicitly delete scans first just in case there's no cascade setup.
+  await supabase.from('scans').delete().eq('batch_id', batchId)
+  
+  const { error } = await supabase.from('batches').delete().eq('id', batchId)
+  if (error) throw new Error(error.message)
+  
+  revalidatePath('/admin')
+  return true
 }
 
 export async function getBatchHistory(batchId: string) {
