@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, use, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
@@ -19,6 +19,7 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
   const [pageSize, setPageSize] = useState(10);
   const [isAutoPlay, setIsAutoPlay] = useState(false);
   const [autoPlaySpeed, setAutoPlaySpeed] = useState<"Normal" | "x2">("Normal");
+  const lastAutoPlayIndexRef = useRef<number | null>(null);
   
   const [isCompleting, setIsCompleting] = useState(false);
 
@@ -79,12 +80,23 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
       return;
     }
 
+    const isPageAdvance = lastAutoPlayIndexRef.current !== null && lastAutoPlayIndexRef.current !== currentIndex;
+    lastAutoPlayIndexRef.current = currentIndex;
+
     let timeoutId: NodeJS.Timeout;
     let animationId: number;
     let isAdvancing = false;
 
-    // Berikan jeda diam di paling atas agar QR pertama (misal 101) sempat discan sebelum mulai scroll
-    const startDelay = autoPlaySpeed === "x2" ? 800 : 1500;
+    // Pastikan scroll berada di puncak HANYA saat awal halaman baru dimuat oleh AutoPlay
+    if (isPageAdvance) {
+      window.scrollTo(0, 0);
+    }
+
+    // Jeda diam di puncak saat halaman baru atau posisi di paling atas agar QR pertama sempat discan.
+    // Jika melanjutkan dari posisi Pause di tengah halaman, langsung jalan tanpa jeda lama & tanpa loncat ke atas.
+    const startDelay = isPageAdvance
+      ? (autoPlaySpeed === "x2" ? 800 : 1500)
+      : (typeof window !== "undefined" && window.scrollY <= 10 ? (autoPlaySpeed === "x2" ? 800 : 1500) : 100);
 
     const play = () => {
       if (isAdvancing) return;
@@ -120,9 +132,6 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
         animationId = requestAnimationFrame(play);
       }
     };
-
-    // Pastikan scroll berada di puncak saat awal halaman baru dimuat
-    window.scrollTo(0, 0);
 
     timeoutId = setTimeout(() => {
       animationId = requestAnimationFrame(play);
