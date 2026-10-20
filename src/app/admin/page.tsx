@@ -102,6 +102,9 @@ export default function AdminPage() {
           <p className="text-sm text-gray-500 mt-1">Pantau semua aktivitas scan batch</p>
         </div>
         <div className="flex gap-4">
+          <Link href="/admin/keuangan" className="px-4 py-2 bg-green-100 text-green-700 font-bold rounded-xl hover:bg-green-200">
+            Keuangan
+          </Link>
           <Link href="/admin/users" className="px-4 py-2 bg-blue-100 text-blue-700 font-bold rounded-xl hover:bg-blue-200">
             Kelola User
           </Link>
