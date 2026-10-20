@@ -177,15 +177,17 @@ export default function KeuanganPage() {
         <div className="flex-1" />
         <button
           onClick={() => buatPdfPekerja(bulan, persen, r.pekerja, r.totalStar, r.totalJatahPekerja)}
-          className="px-4 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 text-sm h-[42px]"
+          disabled={loading || busy}
+          className="px-4 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 text-sm h-[42px] disabled:opacity-50"
         >
-          PDF Pekerja
+          {loading ? 'Memuat...' : 'PDF Pekerja'}
         </button>
         <button
           onClick={() => buatPdfOwner(bulan, persen, r, pengeluaran)}
-          className="px-4 py-2.5 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 text-sm h-[42px]"
+          disabled={loading || busy}
+          className="px-4 py-2.5 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 text-sm h-[42px] disabled:opacity-50"
         >
-          PDF Owner
+          {loading ? 'Memuat...' : 'PDF Owner'}
         </button>
       </div>
 

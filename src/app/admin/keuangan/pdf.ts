@@ -97,6 +97,7 @@ export async function buatPdfOwner(
   bulan: string,
   persenPekerja: number,
   data: {
+    pekerja?: RingkasanPekerja[]
     totalStar: number
     totalJatahPekerja: number
     jatahOwner: number
@@ -127,8 +128,28 @@ export async function buatPdfOwner(
   doc.setFont('helvetica', 'normal')
   y += 14
 
+  if (data.pekerja && data.pekerja.length > 0) {
+    doc.setFont('helvetica', 'bold')
+    doc.text('Rincian Pembagian Star Pekerja', M, y)
+    doc.setFont('helvetica', 'normal')
+    y += 7
+
+    y = tabel(
+      doc,
+      y,
+      [
+        { label: 'Nama', x: M },
+        { label: 'Total Star', x: 120, align: 'right' },
+        { label: 'Jatah (Rp)', x: W - M, align: 'right' },
+      ],
+      data.pekerja.map(p => [p.nama, p.totalStar.toLocaleString('id-ID'), rupiah(p.jatah)]),
+      ['TOTAL', data.totalStar.toLocaleString('id-ID'), rupiah(data.totalJatahPekerja)]
+    )
+    y += 10
+  }
+
   doc.setFont('helvetica', 'bold')
-  doc.text('Rincian Pengeluaran', M, y)
+  doc.text('Rincian Pengeluaran Kantor', M, y)
   doc.setFont('helvetica', 'normal')
   y += 7
 

@@ -81,18 +81,38 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
 
     let timeoutId: NodeJS.Timeout;
     let animationId: number;
+    let isAdvancing = false;
+
+    // Berikan jeda diam di paling atas agar QR pertama (misal 101) sempat discan sebelum mulai scroll
+    const startDelay = autoPlaySpeed === "x2" ? 800 : 1500;
 
     const play = () => {
+      if (isAdvancing) return;
+
       const scrollPos = window.innerHeight + window.scrollY;
       const bodyHeight = document.body.offsetHeight;
 
-      if (scrollPos >= bodyHeight - 5) {
+      if (bodyHeight > window.innerHeight && scrollPos >= bodyHeight - 5) {
+        isAdvancing = true;
         const delay = autoPlaySpeed === "x2" ? 750 : 1500;
-        timeoutId = setTimeout(() => {
+        timeoutId = setTimeout(async () => {
           const nextIndex = currentIndex + pageSize;
           const clampedIndex = Math.min(nextIndex, effEnd + 1);
+
+          // Langsung letakkan posisi layar instan di puncak (top: 0) tanpa smooth scroll
+          window.scrollTo(0, 0);
           setCurrentIndex(clampedIndex);
-          window.scrollTo({ top: 0, behavior: "smooth" });
+
+          if (!activeFilter) {
+            try {
+              await saveCurrentIndex(id, clampedIndex);
+            } catch (err: any) {
+              console.error("AutoPlay save progress error:", err);
+              if (err?.message?.includes("Server Action") || err?.message?.includes("not found")) {
+                window.location.reload();
+              }
+            }
+          }
         }, delay);
       } else {
         const scrollStep = autoPlaySpeed === "x2" ? 3 : 1.5;
@@ -101,9 +121,12 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
       }
     };
 
+    // Pastikan scroll berada di puncak saat awal halaman baru dimuat
+    window.scrollTo(0, 0);
+
     timeoutId = setTimeout(() => {
       animationId = requestAnimationFrame(play);
-    }, 500);
+    }, startDelay);
 
     return () => {
       cancelAnimationFrame(animationId);
@@ -143,13 +166,17 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
       
       const oldIndex = currentIndex;
       setCurrentIndex(clampedIndex);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo(0, 0);
 
       if (!activeFilter) {
         try {
           await saveCurrentIndex(id, clampedIndex);
         } catch (e: any) {
           console.error(e);
+          if (e?.message?.includes("Server Action") || e?.message?.includes("not found")) {
+            window.location.reload();
+            return;
+          }
           setCurrentIndex(oldIndex);
           alert("Gagal menyimpan progres: " + e.message);
         }
@@ -177,7 +204,7 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
       const prevIndex = currentIndex - pageSize;
       const clampedIndex = Math.max(prevIndex, effectiveStart);
       setCurrentIndex(clampedIndex);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo(0, 0);
     }
   };
 
