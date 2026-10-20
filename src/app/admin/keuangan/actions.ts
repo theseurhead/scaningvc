@@ -24,24 +24,40 @@ function cekAngka(n: number, min: number) {
   if (!Number.isInteger(n) || n < min) throw new Error('Jumlah harus bilangan bulat yang valid')
 }
 
-export async function getKeuangan(bulan: string) {
-  if (!reBulan.test(bulan)) throw new Error('Format bulan tidak valid')
+export async function getKeuangan(dariOrBulan: string, sampaiParam?: string) {
   const { supabase } = await requireAdmin()
-  const { dari, sampai } = rentangBulan(bulan)
+  let dari: string
+  let sampai: string
+
+  if (sampaiParam) {
+    cekTanggal(dariOrBulan)
+    cekTanggal(sampaiParam)
+    dari = dariOrBulan
+    sampai = sampaiParam
+  } else if (reBulan.test(dariOrBulan)) {
+    const r = rentangBulan(dariOrBulan)
+    dari = r.dari
+    sampai = r.sampai
+  } else if (reTanggal.test(dariOrBulan)) {
+    dari = dariOrBulan
+    sampai = dariOrBulan
+  } else {
+    throw new Error('Format tanggal/periode tidak valid')
+  }
 
   const [stars, pengeluaran, settings, pekerja] = await Promise.all([
     supabase
       .from('star_harian')
       .select('id, tanggal, pekerja_id, jumlah_star, profiles!star_harian_pekerja_id_fkey ( nama, username )')
       .gte('tanggal', dari)
-      .lt('tanggal', sampai)
+      .lte('tanggal', sampai)
       .order('tanggal', { ascending: false }),
     supabase
       .from('pengeluaran')
       .select('id, tanggal, keterangan, jumlah')
       .is('deleted_at', null)
       .gte('tanggal', dari)
-      .lt('tanggal', sampai)
+      .lte('tanggal', sampai)
       .order('tanggal', { ascending: false })
       .order('created_at', { ascending: false }),
     supabase.from('keuangan_settings').select('persen_pekerja').eq('id', 1).maybeSingle(),

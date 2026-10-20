@@ -73,10 +73,39 @@ export function formatTanggal(iso: string): string {
   return `${hari}, ${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`
 }
 
-export function rentangBulan(bulan: string): { dari: string; sampai: string } {
+export function rentangHari(tanggal: string): { dari: string; sampai: string; label: string } {
+  return {
+    dari: tanggal,
+    sampai: tanggal,
+    label: formatTanggal(tanggal),
+  }
+}
+
+export function rentangMinggu(tanggal: string): { dari: string; sampai: string; label: string } {
+  const [y, m, d] = tanggal.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  const day = dt.getUTCDay()
+  const diffToMonday = day === 0 ? -6 : 1 - day
+  const monday = new Date(dt)
+  monday.setUTCDate(dt.getUTCDate() + diffToMonday)
+  const sunday = new Date(monday)
+  sunday.setUTCDate(monday.getUTCDate() + 6)
+  const toISO = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+  const dari = toISO(monday)
+  const sampai = toISO(sunday)
+  const label = `${String(monday.getUTCDate()).padStart(2, '0')}/${String(monday.getUTCMonth() + 1).padStart(2, '0')} - ${String(sunday.getUTCDate()).padStart(2, '0')}/${String(sunday.getUTCMonth() + 1).padStart(2, '0')}/${sunday.getUTCFullYear()}`
+  return { dari, sampai, label }
+}
+
+export function rentangBulan(bulan: string): { dari: string; sampai: string; label: string } {
   const [y, m] = bulan.split('-').map(Number)
-  const next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
-  return { dari: `${bulan}-01`, sampai: `${next}-01` } // sampai = eksklusif
+  const nama = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  return {
+    dari: `${bulan}-01`,
+    sampai: `${bulan}-${String(lastDay).padStart(2, '0')}`,
+    label: `${nama[m - 1]} ${y}`,
+  }
 }
 
 export function namaBulan(bulan: string): string {

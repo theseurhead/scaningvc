@@ -12,13 +12,14 @@ type Doc = InstanceType<typeof import('jspdf').jsPDF>
 const M = 15 // margin
 const W = 210
 
-function header(doc: Doc, judul: string, bulan: string) {
+function header(doc: Doc, judul: string, periode: string) {
+  const label = /^\d{4}-\d{2}$/.test(periode) ? namaBulan(periode) : periode
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(16)
   doc.text(judul, M, 20)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(10)
-  doc.text(`Periode: ${namaBulan(bulan)}`, M, 27)
+  doc.text(`Periode: ${label}`, M, 27)
   doc.text(`Dicetak: ${new Date().toLocaleString('id-ID')}`, M, 32)
   return 42
 }
@@ -65,7 +66,7 @@ function tabel(doc: Doc, y: number, kolom: Kolom[], baris: string[][], totalBari
 }
 
 export async function buatPdfPekerja(
-  bulan: string,
+  periode: string,
   persenPekerja: number,
   pekerja: RingkasanPekerja[],
   totalStar: number,
@@ -73,7 +74,7 @@ export async function buatPdfPekerja(
 ) {
   const { jsPDF } = await import('jspdf')
   const doc = new jsPDF()
-  let y = header(doc, 'Laporan Pembagian Star Pekerja', bulan)
+  let y = header(doc, 'Laporan Pembagian Star Pekerja', periode)
 
   doc.text(`Jatah pekerja: ${persenPekerja}% dari star (1 star = Rp 1)`, M, y)
   y += 8
@@ -90,11 +91,12 @@ export async function buatPdfPekerja(
     ['TOTAL', totalStar.toLocaleString('id-ID'), rupiah(totalJatah)]
   )
 
-  doc.save(`laporan-pekerja-${bulan}.pdf`)
+  const fileSuffix = periode.replace(/[^a-zA-Z0-9_-]/g, '_')
+  doc.save(`laporan-pekerja-${fileSuffix}.pdf`)
 }
 
 export async function buatPdfOwner(
-  bulan: string,
+  periode: string,
   persenPekerja: number,
   data: {
     pekerja?: RingkasanPekerja[]
@@ -108,7 +110,7 @@ export async function buatPdfOwner(
 ) {
   const { jsPDF } = await import('jspdf')
   const doc = new jsPDF()
-  let y = header(doc, 'Laporan Keuangan Owner', bulan)
+  let y = header(doc, 'Laporan Keuangan Owner', periode)
 
   const ringkas: [string, string][] = [
     ['Total star (pemasukan)', rupiah(data.totalStar)],
@@ -170,5 +172,6 @@ export async function buatPdfOwner(
     )
   }
 
-  doc.save(`laporan-owner-${bulan}.pdf`)
+  const fileSuffix = periode.replace(/[^a-zA-Z0-9_-]/g, '_')
+  doc.save(`laporan-owner-${fileSuffix}.pdf`)
 }

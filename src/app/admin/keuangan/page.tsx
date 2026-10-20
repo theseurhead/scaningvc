@@ -15,6 +15,9 @@ import {
   formatTanggal,
   hitungRingkasan,
   jatahPekerja,
+  rentangBulan,
+  rentangHari,
+  rentangMinggu,
   rupiah,
   type PengeluaranRow,
   type StarRow,
@@ -30,7 +33,10 @@ const inputCls = 'w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-x
 const labelCls = 'block text-xs font-bold text-gray-500 mb-1.5';
 
 export default function KeuanganPage() {
-  const [bulan, setBulan] = useState(hariIni().slice(0, 7));
+  const [filterType, setFilterType] = useState<'hari' | 'minggu' | 'bulan'>('bulan');
+  const [tanggalPilihan, setTanggalPilihan] = useState(hariIni());
+  const [bulanPilihan, setBulanPilihan] = useState(hariIni().slice(0, 7));
+
   const [loading, setLoading] = useState(true);
   const [stars, setStars] = useState<StarRow[]>([]);
   const [pengeluaran, setPengeluaran] = useState<PengeluaranRow[]>([]);
@@ -51,10 +57,16 @@ export default function KeuanganPage() {
 
   const [busy, setBusy] = useState(false);
 
+  const periodeInfo = useMemo(() => {
+    if (filterType === 'hari') return rentangHari(tanggalPilihan);
+    if (filterType === 'minggu') return rentangMinggu(tanggalPilihan);
+    return rentangBulan(bulanPilihan);
+  }, [filterType, tanggalPilihan, bulanPilihan]);
+
   const load = async () => {
     setLoading(true);
     try {
-      const res = await getKeuangan(bulan);
+      const res = await getKeuangan(periodeInfo.dari, periodeInfo.sampai);
       setStars(res.stars);
       setPengeluaran(res.pengeluaran);
       setPekerjaList(res.pekerja);
@@ -71,7 +83,7 @@ export default function KeuanganPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bulan]);
+  }, [periodeInfo.dari, periodeInfo.sampai]);
 
   const r = useMemo(() => hitungRingkasan(stars, pengeluaran, persen), [stars, pengeluaran, persen]);
 
@@ -139,10 +151,37 @@ export default function KeuanganPage() {
       <header className="flex flex-wrap gap-4 justify-between items-center mb-8 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 tracking-tight">Keuangan</h1>
-          <p className="text-sm text-gray-500 mt-1">1 star = Rp 1. Pembagian jatah pekerja dan owner</p>
+          <p className="text-sm text-gray-500 mt-1">
+            1 star = Rp 1. Pembagian jatah pekerja dan owner • Periode: <span className="font-semibold text-gray-800 bg-gray-100 px-2 py-0.5 rounded-md">{periodeInfo.label}</span>
+          </p>
         </div>
-        <div className="flex gap-3 items-center">
-          <input type="month" value={bulan} onChange={e => e.target.value && setBulan(e.target.value)} className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold" />
+        <div className="flex flex-wrap gap-2.5 items-center">
+          <div className="flex items-center bg-gray-50 border border-gray-200 rounded-xl p-1 gap-1.5 shadow-sm">
+            <select
+              value={filterType}
+              onChange={e => setFilterType(e.target.value as 'hari' | 'minggu' | 'bulan')}
+              className="bg-white border border-gray-200 text-gray-800 font-bold text-xs rounded-lg px-3 py-2 outline-none shadow-sm cursor-pointer hover:border-gray-300"
+            >
+              <option value="hari">Harian</option>
+              <option value="minggu">Mingguan</option>
+              <option value="bulan">Bulanan</option>
+            </select>
+            {filterType === 'bulan' ? (
+              <input
+                type="month"
+                value={bulanPilihan}
+                onChange={e => e.target.value && setBulanPilihan(e.target.value)}
+                className="px-2.5 py-1.5 bg-transparent border-none text-xs font-bold text-gray-800 outline-none cursor-pointer"
+              />
+            ) : (
+              <input
+                type="date"
+                value={tanggalPilihan}
+                onChange={e => e.target.value && setTanggalPilihan(e.target.value)}
+                className="px-2.5 py-1.5 bg-transparent border-none text-xs font-bold text-gray-800 outline-none cursor-pointer"
+              />
+            )}
+          </div>
           <Link href="/admin" className="px-4 py-2 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 text-sm">
             ← Dashboard
           </Link>
@@ -176,14 +215,14 @@ export default function KeuanganPage() {
         </button>
         <div className="flex-1" />
         <button
-          onClick={() => buatPdfPekerja(bulan, persen, r.pekerja, r.totalStar, r.totalJatahPekerja)}
+          onClick={() => buatPdfPekerja(periodeInfo.label, persen, r.pekerja, r.totalStar, r.totalJatahPekerja)}
           disabled={loading || busy}
           className="px-4 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 text-sm h-[42px] disabled:opacity-50"
         >
           {loading ? 'Memuat...' : 'PDF Pekerja'}
         </button>
         <button
-          onClick={() => buatPdfOwner(bulan, persen, r, pengeluaran)}
+          onClick={() => buatPdfOwner(periodeInfo.label, persen, r, pengeluaran)}
           disabled={loading || busy}
           className="px-4 py-2.5 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 text-sm h-[42px] disabled:opacity-50"
         >
@@ -266,7 +305,7 @@ export default function KeuanganPage() {
               {loading ? (
                 <tr><td colSpan={3} className="text-center py-6 text-gray-500">Memuat data...</td></tr>
               ) : r.pekerja.length === 0 ? (
-                <tr><td colSpan={3} className="text-center py-6 text-gray-500">Belum ada star bulan ini</td></tr>
+                <tr><td colSpan={3} className="text-center py-6 text-gray-500">Belum ada star pada periode ini</td></tr>
               ) : r.pekerja.map(p => (
                 <tr key={p.pekerja_id}>
                   <td className="px-6 py-3 font-bold text-gray-800">{p.nama}</td>
