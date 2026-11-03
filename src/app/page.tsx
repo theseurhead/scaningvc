@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getDashboardData } from "@/lib/batchData";
 import { BatchCard } from "./BatchCard";
+import { UserBatchList } from "./UserBatchList";
 
 export const dynamic = 'force-dynamic';
 
@@ -15,15 +16,7 @@ export default async function Home() {
       </header>
 
       <main className="max-w-md mx-auto space-y-4">
-        {activeBatches.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-2xl shadow-sm border border-gray-100">
-            <p className="text-gray-500">Belum ada batch aktif.</p>
-          </div>
-        ) : (
-          activeBatches.map((batch) => (
-            <BatchCard key={batch.id} batch={batch} />
-          ))
-        )}
+        <UserBatchList initialBatches={activeBatches} />
       </main>
 
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-gray-50 via-gray-50 to-transparent">

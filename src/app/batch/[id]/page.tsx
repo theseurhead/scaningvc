@@ -18,7 +18,7 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
   
   const [pageSize, setPageSize] = useState(10);
   const [isAutoPlay, setIsAutoPlay] = useState(false);
-  const [autoPlaySpeed, setAutoPlaySpeed] = useState<"Normal" | "x2">("Normal");
+  const [autoPlaySpeed, setAutoPlaySpeed] = useState<"Normal" | "x1" | "x1.5" | "x2">("Normal");
   const lastAutoPlayIndexRef = useRef<number | null>(null);
   
   const [isCompleting, setIsCompleting] = useState(false);
@@ -95,8 +95,8 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
     // Jeda diam di puncak saat halaman baru atau posisi di paling atas agar QR pertama sempat discan.
     // Jika melanjutkan dari posisi Pause di tengah halaman, langsung jalan tanpa jeda lama & tanpa loncat ke atas.
     const startDelay = isPageAdvance
-      ? (autoPlaySpeed === "x2" ? 800 : 1500)
-      : (typeof window !== "undefined" && window.scrollY <= 10 ? (autoPlaySpeed === "x2" ? 800 : 1500) : 100);
+      ? (autoPlaySpeed === "x2" ? 800 : autoPlaySpeed === "x1.5" ? 1100 : 1500)
+      : (typeof window !== "undefined" && window.scrollY <= 10 ? (autoPlaySpeed === "x2" ? 800 : autoPlaySpeed === "x1.5" ? 1100 : 1500) : 100);
 
     const play = () => {
       if (isAdvancing) return;
@@ -106,7 +106,7 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
 
       if (bodyHeight > window.innerHeight && scrollPos >= bodyHeight - 5) {
         isAdvancing = true;
-        const delay = autoPlaySpeed === "x2" ? 750 : 1500;
+        const delay = autoPlaySpeed === "x2" ? 750 : autoPlaySpeed === "x1.5" ? 1000 : 1500;
         timeoutId = setTimeout(async () => {
           const nextIndex = currentIndex + pageSize;
           const clampedIndex = Math.min(nextIndex, effEnd + 1);
@@ -127,7 +127,7 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
           }
         }, delay);
       } else {
-        const scrollStep = autoPlaySpeed === "x2" ? 3 : 1.5;
+        const scrollStep = autoPlaySpeed === "x2" ? 3 : autoPlaySpeed === "x1.5" ? 2.25 : 1.5;
         window.scrollBy(0, scrollStep);
         animationId = requestAnimationFrame(play);
       }
@@ -496,12 +496,13 @@ export default function BatchPage({ params }: { params: Promise<{ id: string }> 
           <div className="flex gap-3 mb-3 items-end">
             <div className="flex flex-col gap-1.5">
               <select
-                value={autoPlaySpeed}
-                onChange={(e) => setAutoPlaySpeed(e.target.value as "Normal" | "x2")}
+                value={autoPlaySpeed === "Normal" ? "x1" : autoPlaySpeed}
+                onChange={(e) => setAutoPlaySpeed(e.target.value as "x1" | "x1.5" | "x2")}
                 className="text-xs bg-white border border-gray-200 text-gray-600 font-bold rounded-lg px-2 py-1 outline-none shadow-sm focus:border-green-400"
               >
-                <option value="Normal">Normal</option>
-                <option value="x2">Speed x2</option>
+                <option value="x1">x1</option>
+                <option value="x1.5">x1.5</option>
+                <option value="x2">x2</option>
               </select>
               <button
                 onClick={() => setIsAutoPlay(!isAutoPlay)}
